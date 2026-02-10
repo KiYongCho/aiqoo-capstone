@@ -145,6 +145,15 @@ app.post('/api/answer', async (req, res) => {
   }
 });
 
+app.get('/api/debug/env', (req, res) => {
+  const key = process.env.OPENAI_API_KEY || '';
+  res.json({
+    hasKey: !!key,
+    keyLength: key.length,
+    keyPrefix: key.slice(0, 4) // sk- 인지만 확인
+  });
+});
+
 // ================================
 // 6) Listen
 // ================================
