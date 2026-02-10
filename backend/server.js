@@ -12,12 +12,12 @@ const PORT = 3000;
 // 1) Static: public을 웹 루트(/)로 서빙
 //    => /index.html, /html/qa.html, /css/*, /js/* 모두 동작
 // ================================
-app.use(express.static(path.join(__dirname, 'public')));
+//app.use(express.static(path.join(__dirname, 'public')));
 
 // (권장) 루트 접속 시 index.html 반환
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+//app.get('/', (req, res) => {
+//  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+//});
 
 // ================================
 // 2) CORS / Body Parser
