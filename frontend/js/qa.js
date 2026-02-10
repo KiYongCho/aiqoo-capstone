@@ -1,4 +1,5 @@
-const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소로 바꾸기
+// qa.js (JSON 단발 응답 버전: 스트리밍 의존 제거)
+const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소
 
 (function () {
   const questionInput = document.getElementById('questionInput');
@@ -13,43 +14,35 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소로 �
   const providerLabel = document.getElementById('providerLabel');
 
   // =========================
-  // ✅ origin 처리(수정 핵심)
+  // ✅ origin 처리
   // =========================
-
   function safeParseUrl(u) {
     try { return new URL(u); } catch (_) { return null; }
   }
 
-  // 부모 URL은 iframe 안에서 document.referrer로 잡히는 게 일반적입니다.
   const ref = safeParseUrl(document.referrer);
   const parentOriginFromReferrer = ref ? ref.origin : '';
 
-  // 현재 origin 기준으로 localhost/127.0.0.1 둘 다 허용 (같은 포트)
   const here = new URL(window.location.href);
   const port = here.port || (here.protocol === 'https:' ? '443' : '80');
 
   const samePortLocalhost = `${here.protocol}//localhost:${port}`;
   const samePortLoopback = `${here.protocol}//127.0.0.1:${port}`;
 
-  // 최종 parentOrigin: referrer가 있으면 그걸 우선 사용, 없으면 현재 origin
   const PARENT_ORIGIN = parentOriginFromReferrer || window.location.origin;
 
-  // 허용 origin: referrer origin + 현재 origin + localhost/127 양쪽
   const ALLOWED_PARENT_ORIGINS = new Set(
     [PARENT_ORIGIN, window.location.origin, samePortLocalhost, samePortLoopback].filter(Boolean)
   );
 
-  // postMessage targetOrigin: 가능한 한 parentOrigin을 쓰되,
-  // 예외 상황(리퍼러 없음/파일 프로토콜 등)에서는 '*'로 fallback
   function getPostTargetOrigin() {
     if (PARENT_ORIGIN && PARENT_ORIGIN.startsWith('http')) return PARENT_ORIGIN;
     return '*';
   }
 
   // =========================
-  // 기존 로직(그대로) + 일부 보강
+  // 상태
   // =========================
-
   let videoKey = 'default';
   let videoUrl = '';
   let provider = 'native';
@@ -124,10 +117,11 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소로 �
             '<div class="text-[13px] leading-normal text-red-400">' + escapeHtml(item.error) + '</div>' +
           '</div>';
       } else {
+        // answer='', error='' → 로딩 상태
         answerHtml =
           '<div class="border-t border-white/[0.05] bg-black/20 px-3.5 py-3">' +
             '<div class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">답변</div>' +
-            '<div class="text-[13px] italic text-zinc-500">답변 스트리밍 중...</div>' +
+            '<div class="text-[13px] italic text-zinc-500">답변 생성 중...</div>' +
           '</div>';
       }
 
@@ -157,8 +151,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소로 �
   }
 
   function getApiBase() {
-    //if (window.location.protocol === 'http:' || window.location.protocol === 'https:') return window.location.origin;
-    //return 'http://localhost:3000';
     return API_BASE;
   }
 
@@ -201,71 +193,35 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소로 �
     });
   }
 
-  async function streamAnswer({ question, t, tLabel, provider, youtubeId, videoUrl }) {
+  // =========================
+  // ✅ 스트리밍 제거: JSON 단발 응답
+  // =========================
+  async function requestAnswer(payload) {
     const base = getApiBase();
     const url = base + '/api/answer';
 
-    const payload = { question, videoKey, videoUrl, provider, youtubeId, t, tLabel };
-
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
 
-    if (!res.ok || !res.body) {
-      const txt = await res.text().catch(() => '');
-      throw new Error(txt || ('답변 생성 실패 (HTTP ' + res.status + ')'));
+    // 에러 응답도 JSON일 수도 있고, 텍스트일 수도 있으므로 안전 처리
+    const text = await res.text().catch(() => '');
+    let data = null;
+    try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { raw: text }; }
+
+    if (!res.ok) {
+      const msg = (data && data.error) ? data.error : (text || ('답변 생성 실패 (HTTP ' + res.status + ')'));
+      throw new Error(msg);
     }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-
-    let buf = '';
-    let done = false;
-    let answerText = '';
-
-    while (!done) {
-      const chunk = await reader.read();
-      done = !!chunk.done;
-      buf += decoder.decode(chunk.value || new Uint8Array(), { stream: !done });
-
-      let idx;
-      while ((idx = buf.indexOf('\n\n')) !== -1) {
-        const frame = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-
-        const lines = frame.split('\n');
-        let eventName = '';
-        let dataStr = '';
-
-        for (const line of lines) {
-          if (line.startsWith('event:')) eventName = line.slice(6).trim();
-          if (line.startsWith('data:')) dataStr += line.slice(5).trim();
-        }
-        if (!dataStr) continue;
-
-        let data;
-        try { data = JSON.parse(dataStr); } catch (_) { data = { text: dataStr }; }
-
-        if (eventName === 'context') {
-          const captionSnippet = String(data.captionSnippet || '');
-          updateItem({ captionSnippet });
-        } else if (eventName === 'token') {
-          const token = String(data.token || '');
-          answerText += token;
-          updateItem({ answer: answerText });
-        } else if (eventName === 'done') {
-          updateItem({ answer: answerText });
-          return;
-        } else if (eventName === 'error') {
-          throw new Error(String(data.error || '서버 오류'));
-        }
-      }
-    }
+    const answer = data && data.answer ? String(data.answer) : '';
+    if (!answer) throw new Error('LLM이 빈 답변을 반환했습니다. 다시 시도해 주세요.');
+    return answer;
   }
 
-  function updateItem(patch) {
+  function updateLastItem(patch) {
     const items = loadQA();
     const idx = items.length - 1;
     if (!items[idx]) return;
@@ -289,7 +245,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소로 �
       youtubeId: timeInfo.youtubeId,
       t: timeInfo.t,
       tLabel: timeInfo.tLabel,
-      captionSnippet: '',
+      captionSnippet: '', // 서버가 제공 안 하면 빈 값 유지
       answer: '',
       error: ''
     });
@@ -301,22 +257,28 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소로 �
     render();
 
     try {
-      await streamAnswer({
+      const answer = await requestAnswer({
         question: text,
-        t: timeInfo.t,
-        tLabel: timeInfo.tLabel,
+        videoKey,
+        videoUrl,
         provider: timeInfo.provider,
         youtubeId: timeInfo.youtubeId,
-        videoUrl: videoUrl
+        t: timeInfo.t,
+        tLabel: timeInfo.tLabel
       });
+      updateLastItem({ answer, error: '' });
     } catch (err) {
-      updateItem({ error: err && err.message ? err.message : '연결 실패' });
+      updateLastItem({ error: (err && err.message) ? err.message : '연결 실패' });
     } finally {
       submitBtn.disabled = false;
+      // voiceBtn은 enabled 여부 + speechSupported에 따라 setQuestionUIEnabled에서 제어
       render();
     }
   }
 
+  // =========================
+  // 부모 메시지 처리
+  // =========================
   window.addEventListener('message', function (e) {
     if (!ALLOWED_PARENT_ORIGINS.has(e.origin)) return;
 
@@ -340,6 +302,9 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소로 �
     try { window.parent.postMessage({ type: 'qaReady' }, getPostTargetOrigin()); } catch (_) {}
   }
 
+  // =========================
+  // UI 이벤트
+  // =========================
   submitBtn.addEventListener('click', function () {
     const v = (questionInput.value || '').trim();
     if (!v) {
@@ -371,7 +336,9 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소로 �
     notifyParentPause();
   });
 
-  // SpeechRecognition
+  // =========================
+  // 음성 인식
+  // =========================
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition = null;
 
@@ -424,7 +391,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소로 �
         voiceStatus.textContent = e.error === 'no-speech' ? '음성이 없습니다.' : '음성 인식 오류. 다시 시도하세요.';
       };
 
-      try { recognition.start(); } catch (err) {
+      try { recognition.start(); } catch (_) {
         voiceBtn.classList.remove('listening', '!border-red-500/30', '!bg-red-500/15', '!text-red-300');
         voiceBtn.textContent = '🎤 음성 질문';
         voiceStatus.textContent = '마이크를 사용할 수 없습니다.';
@@ -436,7 +403,9 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소로 �
     voiceStatus.textContent = '이 브라우저는 음성 인식을 지원하지 않습니다. (Chrome 권장)';
   }
 
+  // =========================
   // Reset modal
+  // =========================
   const resetModal = document.getElementById('resetModal');
   const resetModalCancel = document.getElementById('resetModalCancel');
   const resetModalConfirm = document.getElementById('resetModalConfirm');
