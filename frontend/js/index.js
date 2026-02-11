@@ -10,9 +10,6 @@
 
   const qaFrame = document.querySelector('iframe[src="html/qa.html"]');
 
-  // =========================
-  // postMessage helper
-  // =========================
   function postToQA(msg) {
     if (!qaFrame || !qaFrame.contentWindow) return;
     qaFrame.contentWindow.postMessage(msg, "*");
@@ -26,9 +23,12 @@
   let videoUrl = "";
   let videoKey = "default";
 
-  // YouTube Player
   let ytPlayer = null;
-  window.ytPlayer = null; // qaFocus에서 접근 가능하도록 공개(선택)
+  window.ytPlayer = null;
+
+  // ✅ YouTube API ready 전 apply 대비
+  let pendingYoutubeId = "";
+  let ytReady = false;
 
   // =========================
   // util
@@ -68,18 +68,13 @@
   function showPlaceholder(show) {
     placeholder.classList.toggle("hidden", !show);
   }
-
   function showNative(show) {
     nativeVideo.classList.toggle("hidden", !show);
   }
-
   function showYouTube(show) {
     youtubeWrap.classList.toggle("hidden", !show);
   }
 
-  // =========================
-  // 상태 메시지 전송
-  // =========================
   function sendVideoInfo() {
     postToQA({
       type: "videoInfo",
@@ -89,15 +84,12 @@
       youtubeId
     });
   }
-
   function sendPlaying() {
     postToQA({ type: "videoPlaying" });
   }
-
   function sendPaused() {
     postToQA({ type: "videoPaused" });
   }
-
   function sendTimeInfo() {
     const t = getCurrentTime();
     postToQA({
@@ -109,9 +101,6 @@
     });
   }
 
-  // =========================
-  // 현재 시간/정지
-  // =========================
   function getCurrentTime() {
     if (provider === "youtube" && ytPlayer && typeof ytPlayer.getCurrentTime === "function") {
       return Number(ytPlayer.getCurrentTime() || 0);
@@ -123,19 +112,17 @@
   }
 
   function pauseVideo() {
-    // YouTube
     if (provider === "youtube" && ytPlayer && typeof ytPlayer.pauseVideo === "function") {
       ytPlayer.pauseVideo();
       return;
     }
-    // Native
     if (provider === "native" && nativeVideo && !nativeVideo.paused) {
       nativeVideo.pause();
     }
   }
 
   // =========================
-  // Native video 이벤트 -> QA에 전송
+  // Native events
   // =========================
   nativeVideo.addEventListener("play", () => {
     provider = "native";
@@ -151,25 +138,32 @@
   // YouTube API ready
   // =========================
   window.onYouTubeIframeAPIReady = function () {
-    // 최초엔 플레이어만 만들어두고, 실제 로드는 apply에서 함
     ytPlayer = new YT.Player(ytPlayerEl, {
-      videoId: "", // apply에서 loadVideoById로 로드
+      videoId: "",
       playerVars: {
         rel: 0,
         modestbranding: 1
       },
       events: {
         onReady: () => {
-          // 준비 완료: 아무것도 안 해도 됨
+          ytReady = true;
+          // ✅ ready 전에 눌렀던 apply 처리
+          if (pendingYoutubeId) {
+            ytPlayer.loadVideoById(pendingYoutubeId);
+            pendingYoutubeId = "";
+          }
         },
         onStateChange: (event) => {
-          if (!event) return;
           const s = event.data;
           if (s === YT.PlayerState.PLAYING) {
             provider = "youtube";
             sendPlaying();
           } else if (s === YT.PlayerState.PAUSED) {
             provider = "youtube";
+            sendPaused();
+          } else if (s === YT.PlayerState.ENDED) {
+            provider = "youtube";
+            // 끝나도 질문 가능이어야 하므로 paused로 처리
             sendPaused();
           }
         }
@@ -183,7 +177,8 @@
   // apply video
   // =========================
   function applyVideo(url) {
-    videoUrl = url.trim();
+    videoUrl = (url || "").trim();
+
     if (!videoUrl) {
       showPlaceholder(true);
       showNative(false);
@@ -191,11 +186,16 @@
       return;
     }
 
+    // ✅ 기존 영상 정리
+    try {
+      if (!nativeVideo.classList.contains("hidden")) {
+        nativeVideo.pause();
+      }
+    } catch (_) {}
+
     if (isYouTubeUrl(videoUrl)) {
-      // YouTube
       provider = "youtube";
       youtubeId = parseYouTubeId(videoUrl);
-
       videoKey = makeVideoKey(provider, videoUrl, youtubeId);
 
       showPlaceholder(false);
@@ -204,12 +204,15 @@
 
       sendVideoInfo();
 
-      if (ytPlayer && youtubeId) {
-        // 즉시 로드
-        ytPlayer.loadVideoById(youtubeId);
+      // ✅ ytReady 이전이면 pending으로 저장
+      if (youtubeId) {
+        if (ytPlayer && ytReady) {
+          ytPlayer.loadVideoById(youtubeId);
+        } else {
+          pendingYoutubeId = youtubeId;
+        }
       }
     } else {
-      // Native
       provider = "native";
       youtubeId = "";
       videoKey = makeVideoKey(provider, videoUrl, "");
@@ -229,36 +232,46 @@
     applyVideo(videoUrlInput.value || "");
   });
 
+  // ✅ 엔터로도 적용
+  videoUrlInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      applyVideo(videoUrlInput.value || "");
+    }
+  });
+
   // =========================
   // QA iframe -> 부모 메시지 처리
   // =========================
   window.addEventListener("message", (e) => {
     if (!e.data) return;
 
-    // ✅ 질문 버튼 누르면 강의 멈춰야 함
     if (e.data.type === "qaFocus") {
       pauseVideo();
       return;
     }
 
-    // QA가 현재 시간 요청
     if (e.data.type === "requestTime") {
       sendTimeInfo();
       return;
     }
 
-    // QA iframe 준비됨: 현재 videoInfo 한번 보내주면 UX 좋아짐
     if (e.data.type === "qaReady") {
       sendVideoInfo();
       return;
     }
   });
 
-  // 초기 상태
+  // =========================
+  // 초기 상태: 기본 URL 자동 적용 ✅
+  // =========================
   showPlaceholder(true);
   showNative(false);
   showYouTube(false);
 
-  // 초기값이 입력되어 있으면 바로 적용해도 좋고(원하시면), 지금은 사용자 클릭 적용으로 둠
-  // applyVideo(videoUrlInput.value || "");
+  // 입력창에 기본값이 있으면 바로 띄우기
+  const initialUrl = (videoUrlInput.value || "").trim();
+  if (initialUrl) {
+    applyVideo(initialUrl);
+  }
 })();
