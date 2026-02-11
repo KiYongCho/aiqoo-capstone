@@ -154,7 +154,7 @@ app.post("/api/stt", upload.single("audio"), async (req, res) => {
     const transcription = await openai.audio.transcriptions.create({
       file: audioFile,
       model,
-      // language: "ko", // 고정하고 싶으면 주석 해제
+      language: "ko"
     });
 
     const text = transcription?.text ? String(transcription.text) : "";
