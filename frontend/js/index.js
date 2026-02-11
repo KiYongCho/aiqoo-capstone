@@ -1,187 +1,264 @@
+// js/index.js
 (function () {
-  const videoUrlInput = document.getElementById('videoUrl');
-  const videoApplyBtn = document.getElementById('videoApply');
+  const videoUrlInput = document.getElementById("videoUrl");
+  const videoApplyBtn = document.getElementById("videoApply");
 
-  const nativeVideo = document.getElementById('nativeVideo');
-  const youtubeWrap = document.getElementById('youtubeWrap');
-  const videoPlaceholder = document.getElementById('videoPlaceholder');
+  const nativeVideo = document.getElementById("nativeVideo");
+  const youtubeWrap = document.getElementById("youtubeWrap");
+  const ytPlayerEl = document.getElementById("ytPlayer");
+  const placeholder = document.getElementById("videoPlaceholder");
 
-  const qaIframe = document.querySelector('iframe[title="강의 질문과 답변"]');
+  const qaFrame = document.querySelector('iframe[src="html/qa.html"]');
 
-  // ✅ 같은 origin만 수신
-  const ALLOWED_CHILD_ORIGINS = new Set([window.location.origin]);
+  // =========================
+  // postMessage helper
+  // =========================
+  function postToQA(msg) {
+    if (!qaFrame || !qaFrame.contentWindow) return;
+    qaFrame.contentWindow.postMessage(msg, "*");
+  }
 
-  // === YouTube Player instance ===
+  // =========================
+  // 상태
+  // =========================
+  let provider = "native"; // "youtube" | "native"
+  let youtubeId = "";
+  let videoUrl = "";
+  let videoKey = "default";
+
+  // YouTube Player
   let ytPlayer = null;
-  let ytReady = false;
-  let currentYouTubeId = null;
+  window.ytPlayer = null; // qaFocus에서 접근 가능하도록 공개(선택)
 
-  function getYouTubeVideoId(url) {
-    if (!url || typeof url !== 'string') return null;
-    const u = url.trim();
-    const m = u.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
-    return m ? m[1] : null;
-  }
-
+  // =========================
+  // util
+  // =========================
   function isYouTubeUrl(url) {
-    return /youtube\.com|youtu\.be/i.test(url || '');
+    return /youtube\.com|youtu\.be/.test(url);
   }
 
-  function formatHMS(sec) {
-    sec = Math.max(0, Math.floor(sec || 0));
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = sec % 60;
-    if (h > 0) return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-  }
-
-  function notifyQa(type, payload) {
+  function parseYouTubeId(url) {
     try {
-      if (qaIframe && qaIframe.contentWindow) {
-        qaIframe.contentWindow.postMessage({ type, ...payload }, window.location.origin);
+      const u = new URL(url);
+      if (u.hostname.includes("youtu.be")) {
+        return u.pathname.replace("/", "").trim();
       }
-    } catch (_) {}
-  }
-
-  function notifyQaVideoInfo() {
-    const url = (videoUrlInput.value || '').trim();
-    const id = getYouTubeVideoId(url);
-    const videoKey = id || url || 'default';
-    notifyQa('videoInfo', { videoKey, videoUrl: url, provider: id ? 'youtube' : 'native', youtubeId: id || '' });
-  }
-
-  function notifyQaVideoPlaying() { notifyQa('videoPlaying', {}); }
-  function notifyQaVideoPaused() { notifyQa('videoPaused', {}); }
-
-  function clearVideo() {
-    nativeVideo.classList.add('hidden');
-    nativeVideo.src = '';
-
-    youtubeWrap.classList.add('hidden');
-    if (ytPlayer && ytReady) {
-      try { ytPlayer.stopVideo(); } catch (_) {}
+      if (u.hostname.includes("youtube.com")) {
+        return u.searchParams.get("v") || "";
+      }
+      return "";
+    } catch {
+      return "";
     }
-    currentYouTubeId = null;
-
-    videoPlaceholder.classList.remove('hidden');
-    notifyQaVideoPaused();
-    notifyQaVideoInfo();
   }
 
-  // === YouTube API callback (global) ===
-  window.onYouTubeIframeAPIReady = function () {
-    ytPlayer = new YT.Player('ytPlayer', {
-      videoId: '',
-      playerVars: {
-        enablejsapi: 1,
-        origin: window.location.origin
-      },
-      events: {
-        onReady: function () { ytReady = true; },
-        onStateChange: function (e) {
-          if (e.data === YT.PlayerState.PLAYING) notifyQaVideoPlaying();
-          if (e.data === YT.PlayerState.PAUSED || e.data === YT.PlayerState.ENDED) notifyQaVideoPaused();
-        }
-      }
+  function makeVideoKey(p, url, yid) {
+    if (p === "youtube" && yid) return `yt:${yid}`;
+    if (url) return `url:${encodeURIComponent(url)}`;
+    return "default";
+  }
+
+  function formatTimeLabel(seconds) {
+    const s = Math.max(0, Math.floor(Number(seconds || 0)));
+    const mm = String(Math.floor(s / 60)).padStart(2, "0");
+    const ss = String(s % 60).padStart(2, "0");
+    return `${mm}:${ss}`;
+  }
+
+  function showPlaceholder(show) {
+    placeholder.classList.toggle("hidden", !show);
+  }
+
+  function showNative(show) {
+    nativeVideo.classList.toggle("hidden", !show);
+  }
+
+  function showYouTube(show) {
+    youtubeWrap.classList.toggle("hidden", !show);
+  }
+
+  // =========================
+  // 상태 메시지 전송
+  // =========================
+  function sendVideoInfo() {
+    postToQA({
+      type: "videoInfo",
+      videoKey,
+      videoUrl,
+      provider,
+      youtubeId
     });
-  };
+  }
 
-  function applyVideo() {
-    const url = (videoUrlInput.value || '').trim();
-    if (!url) { clearVideo(); return; }
+  function sendPlaying() {
+    postToQA({ type: "videoPlaying" });
+  }
 
-    videoPlaceholder.classList.add('hidden');
+  function sendPaused() {
+    postToQA({ type: "videoPaused" });
+  }
 
-    if (isYouTubeUrl(url)) {
-      const id = getYouTubeVideoId(url);
-      if (!id) {
-        videoPlaceholder.textContent = '올바른 YouTube URL을 입력해 주세요.';
-        videoPlaceholder.classList.remove('hidden');
-        notifyQaVideoPaused();
-        notifyQaVideoInfo();
-        return;
-      }
+  function sendTimeInfo() {
+    const t = getCurrentTime();
+    postToQA({
+      type: "timeInfo",
+      t,
+      tLabel: formatTimeLabel(t),
+      provider,
+      youtubeId
+    });
+  }
 
-      nativeVideo.classList.add('hidden');
-      nativeVideo.src = '';
-
-      youtubeWrap.classList.remove('hidden');
-
-      currentYouTubeId = id;
-
-      if (ytPlayer && ytReady) {
-        try { ytPlayer.loadVideoById(id); } catch (_) {}
-      } else {
-        const t = setInterval(() => {
-          if (ytPlayer && ytReady) {
-            clearInterval(t);
-            try { ytPlayer.loadVideoById(id); } catch (_) {}
-          }
-        }, 100);
-        setTimeout(() => clearInterval(t), 3000);
-      }
-
-      notifyQaVideoInfo();
-    } else {
-      youtubeWrap.classList.add('hidden');
-      if (ytPlayer && ytReady) {
-        try { ytPlayer.stopVideo(); } catch (_) {}
-      }
-      currentYouTubeId = null;
-
-      nativeVideo.src = url;
-      nativeVideo.classList.remove('hidden');
-
-      notifyQaVideoInfo();
-      notifyQaVideoPaused();
+  // =========================
+  // 현재 시간/정지
+  // =========================
+  function getCurrentTime() {
+    if (provider === "youtube" && ytPlayer && typeof ytPlayer.getCurrentTime === "function") {
+      return Number(ytPlayer.getCurrentTime() || 0);
     }
+    if (provider === "native" && nativeVideo) {
+      return Number(nativeVideo.currentTime || 0);
+    }
+    return 0;
   }
 
   function pauseVideo() {
-    if (!youtubeWrap.classList.contains('hidden')) {
-      if (ytPlayer && ytReady) {
-        try { ytPlayer.pauseVideo(); } catch (_) {}
-      }
-    } else if (!nativeVideo.classList.contains('hidden')) {
+    // YouTube
+    if (provider === "youtube" && ytPlayer && typeof ytPlayer.pauseVideo === "function") {
+      ytPlayer.pauseVideo();
+      return;
+    }
+    // Native
+    if (provider === "native" && nativeVideo && !nativeVideo.paused) {
       nativeVideo.pause();
     }
   }
 
-  nativeVideo.addEventListener('play', notifyQaVideoPlaying);
-  nativeVideo.addEventListener('pause', notifyQaVideoPaused);
+  // =========================
+  // Native video 이벤트 -> QA에 전송
+  // =========================
+  nativeVideo.addEventListener("play", () => {
+    provider = "native";
+    sendPlaying();
+  });
 
-  function handleRequestTime() {
-    let t = 0;
-    if (!youtubeWrap.classList.contains('hidden')) {
-      if (ytPlayer && ytReady) {
-        try { t = Number(ytPlayer.getCurrentTime() || 0); } catch (_) { t = 0; }
+  nativeVideo.addEventListener("pause", () => {
+    provider = "native";
+    sendPaused();
+  });
+
+  // =========================
+  // YouTube API ready
+  // =========================
+  window.onYouTubeIframeAPIReady = function () {
+    // 최초엔 플레이어만 만들어두고, 실제 로드는 apply에서 함
+    ytPlayer = new YT.Player(ytPlayerEl, {
+      videoId: "", // apply에서 loadVideoById로 로드
+      playerVars: {
+        rel: 0,
+        modestbranding: 1
+      },
+      events: {
+        onReady: () => {
+          // 준비 완료: 아무것도 안 해도 됨
+        },
+        onStateChange: (event) => {
+          if (!event) return;
+          const s = event.data;
+          if (s === YT.PlayerState.PLAYING) {
+            provider = "youtube";
+            sendPlaying();
+          } else if (s === YT.PlayerState.PAUSED) {
+            provider = "youtube";
+            sendPaused();
+          }
+        }
       }
-    } else if (!nativeVideo.classList.contains('hidden')) {
-      t = Number(nativeVideo.currentTime || 0);
+    });
+
+    window.ytPlayer = ytPlayer;
+  };
+
+  // =========================
+  // apply video
+  // =========================
+  function applyVideo(url) {
+    videoUrl = url.trim();
+    if (!videoUrl) {
+      showPlaceholder(true);
+      showNative(false);
+      showYouTube(false);
+      return;
     }
-    notifyQa('timeInfo', { t, tLabel: formatHMS(t), provider: currentYouTubeId ? 'youtube' : 'native', youtubeId: currentYouTubeId || '' });
+
+    if (isYouTubeUrl(videoUrl)) {
+      // YouTube
+      provider = "youtube";
+      youtubeId = parseYouTubeId(videoUrl);
+
+      videoKey = makeVideoKey(provider, videoUrl, youtubeId);
+
+      showPlaceholder(false);
+      showNative(false);
+      showYouTube(true);
+
+      sendVideoInfo();
+
+      if (ytPlayer && youtubeId) {
+        // 즉시 로드
+        ytPlayer.loadVideoById(youtubeId);
+      }
+    } else {
+      // Native
+      provider = "native";
+      youtubeId = "";
+      videoKey = makeVideoKey(provider, videoUrl, "");
+
+      showPlaceholder(false);
+      showYouTube(false);
+      showNative(true);
+
+      nativeVideo.src = videoUrl;
+      nativeVideo.load();
+
+      sendVideoInfo();
+    }
   }
 
-  window.addEventListener('message', function (e) {
-    if (!ALLOWED_CHILD_ORIGINS.has(e.origin)) return;
-    if (!e.data || !e.data.type) return;
+  videoApplyBtn.addEventListener("click", () => {
+    applyVideo(videoUrlInput.value || "");
+  });
 
-    if (e.data.type === 'qaFocus') pauseVideo();
-    if (e.data.type === 'qaReady') {
-      notifyQaVideoInfo();
-      if (!youtubeWrap.classList.contains('hidden')) {
-        // stateChange에 맡김
-      } else if (!nativeVideo.classList.contains('hidden') && !nativeVideo.paused) notifyQaVideoPlaying();
-      else notifyQaVideoPaused();
+  // =========================
+  // QA iframe -> 부모 메시지 처리
+  // =========================
+  window.addEventListener("message", (e) => {
+    if (!e.data) return;
+
+    // ✅ 질문 버튼 누르면 강의 멈춰야 함
+    if (e.data.type === "qaFocus") {
+      pauseVideo();
+      return;
     }
-    if (e.data.type === 'requestTime') handleRequestTime();
+
+    // QA가 현재 시간 요청
+    if (e.data.type === "requestTime") {
+      sendTimeInfo();
+      return;
+    }
+
+    // QA iframe 준비됨: 현재 videoInfo 한번 보내주면 UX 좋아짐
+    if (e.data.type === "qaReady") {
+      sendVideoInfo();
+      return;
+    }
   });
 
-  videoApplyBtn.addEventListener('click', applyVideo);
-  videoUrlInput.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') applyVideo();
-  });
+  // 초기 상태
+  showPlaceholder(true);
+  showNative(false);
+  showYouTube(false);
 
-  applyVideo();
+  // 초기값이 입력되어 있으면 바로 적용해도 좋고(원하시면), 지금은 사용자 클릭 적용으로 둠
+  // applyVideo(videoUrlInput.value || "");
 })();
