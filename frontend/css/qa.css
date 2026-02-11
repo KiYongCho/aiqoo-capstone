@@ -3,3 +3,36 @@
   0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(239,68,68,0.2); }
   50% { opacity: 0.9; box-shadow: 0 0 0 4px rgba(239,68,68,0); }
 }
+
+/* 질문 예시 칩 */
+.qa-chip {
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(244, 244, 245, 0.85);
+  border-radius: 9999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1;
+  transition: transform 120ms ease, background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+.qa-chip:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+}
+.qa-chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 강의 미재생 상태 안내 애니메이션 */
+.aiqa-hint-pulse {
+  animation: aiqaHintPulse 1.4s ease-in-out infinite;
+}
+@keyframes aiqaHintPulse {
+  0%   { opacity: .55; text-shadow: 0 0 0 rgba(99,102,241,0); }
+  50%  { opacity: 1;   text-shadow: 0 0 14px rgba(99,102,241,.35); }
+  100% { opacity: .55; text-shadow: 0 0 0 rgba(99,102,241,0); }
+}
+
