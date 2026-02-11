@@ -16,10 +16,13 @@
   <!-- 툴바 -->
   <div class="shrink-0 border-b border-white/[0.06] bg-white/[0.02] p-4">
 
-    <!-- 안내 문구 (기존 초기화 버튼 자리) -->
+    <!-- 안내 문구 (강의 미재생 시 애니메이션) -->
     <div class="mb-3 flex justify-end">
-      <span class="text-xs font-semibold text-zinc-300/80 tracking-wide">
-        모두의 AI튜터 :: AIQA에게 질문하세요!
+      <span
+        id="hintLabel"
+        class="text-xs font-semibold text-zinc-300/80 tracking-wide"
+      >
+        ❓ 여러분의 AI튜터 :: AIQA에게질문하세요!
       </span>
     </div>
 
@@ -62,8 +65,23 @@
       class="w-full min-h-[108px] resize-y rounded-lg border border-white/[0.08] bg-white/[0.04] px-3.5 py-3 text-sm leading-normal text-zinc-50 placeholder-zinc-500 transition focus:border-indigo-500/50 focus:outline-none focus:ring-3 focus:ring-indigo-500/20 disabled:opacity-60 disabled:cursor-not-allowed"
     ></textarea>
 
-    <!-- 답변 초기화 버튼 (질문 입력 하단으로 이동) -->
-    <div class="mt-2 flex justify-end">
+    <!-- 질문 예시 칩 (추가) -->
+    <div class="mt-2">
+      <div class="mb-1 text-[11px] text-zinc-500">질문 예시</div>
+      <div id="exampleChips" class="flex flex-wrap gap-2">
+        <button type="button" data-example="방금 설명한 핵심 개념을 3줄로 요약해 주세요."
+          class="qa-chip">핵심 요약</button>
+        <button type="button" data-example="이 개념을 비전공자도 이해할 수 있는 일상 예시로 설명해 주세요."
+          class="qa-chip">일상 예시</button>
+        <button type="button" data-example="지금 나온 용어(키워드) 5개를 뽑고 각각 의미를 알려주세요."
+          class="qa-chip">용어 5개</button>
+        <button type="button" data-example="실습을 위해 간단한 예제 코드와 단계별 설명을 만들어 주세요."
+          class="qa-chip">예제 코드</button>
+      </div>
+    </div>
+
+    <!-- 답변 초기화 버튼 (입력 가능할 때만 노출되도록 wrapper 추가) -->
+    <div class="mt-3 flex justify-end hidden" id="resetWrap">
       <button
         type="button"
         class="text-xs font-medium text-zinc-500 underline-offset-2 transition hover:text-zinc-300 hover:underline"
