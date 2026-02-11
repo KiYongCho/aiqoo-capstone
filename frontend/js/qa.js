@@ -1,4 +1,7 @@
 // qa.js (오버레이: 재생 중 중앙 모달 + 클릭하면 pause 요청 + paused 오면 활성화)
+// + Hybrid STT:
+//   - 실시간 표시: Web Speech API (interim -> textarea)
+//   - 최종 확정: Whisper(/api/stt) (stop 시 고품질 전사로 textarea 정제)
 const API_BASE = "https://aiqa-capstone.onrender.com";
 
 (function () {
@@ -41,9 +44,16 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   let provider = 'native';
   let youtubeId = '';
 
-  let speechSupported = true; // ✅ Whisper(서버 STT)로 가므로 브라우저 STT 의존 제거
   let isPlaying = false;
   let overlayPauseRequested = false;
+
+  // ✅ Hybrid STT 상태
+  let isRecording = false;            // MediaRecorder 녹음 중 여부 (Whisper용)
+  let isRealtimeListening = false;    // WebSpeech 실시간 인식 중 여부
+  let realtimeBaseText = "";          // 음성 시작 당시 textarea의 기존 텍스트
+  let realtimeFinal = "";             // WebSpeech final 누적
+  let realtimeInterim = "";           // WebSpeech interim
+  let whisperFinalText = "";          // Whisper 최종 결과(정제용)
 
   function storageKey() {
     return 'lecture-qa:' + (videoKey || 'default');
@@ -187,7 +197,10 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   function setQuestionUIEnabled(enabled) {
     questionInput.disabled = !enabled;
     submitBtn.disabled = !enabled;
-    voiceBtn.disabled = !(enabled && speechSupported);
+
+    // ✅ 음성 버튼은 질문 가능 상태에서만 활성화
+    voiceBtn.disabled = !enabled;
+
     questionInput.placeholder = enabled ? '이 강의에 대해 질문을 입력하세요...' : '영상이 멈추면 질문할 수 있습니다.';
     syncQAUI();
   }
@@ -312,7 +325,237 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     }
   }
 
+  // =========================
+  // ✅ Hybrid: 실시간 표시(Web Speech)
+  // =========================
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const realtimeRec = SpeechRecognition ? new SpeechRecognition() : null;
+
+  function applyRealtimeTextToTextarea() {
+    const live = (realtimeFinal + (realtimeInterim ? (' ' + realtimeInterim) : '')).trim();
+    const base = (realtimeBaseText || '').trim();
+
+    // base가 있으면 base + \n + live 형태
+    const composed = base ? (base + '\n' + live).trim() : live;
+
+    if (composed) {
+      questionInput.value = composed;
+      try {
+        questionInput.focus();
+        questionInput.selectionStart = questionInput.selectionEnd = questionInput.value.length;
+      } catch (_) {}
+    }
+  }
+
+  function startRealtimeSpeech() {
+    if (!realtimeRec) return false;
+
+    // WebSpeech는 품질은 낮지만 “실시간”이 핵심
+    realtimeRec.lang = 'ko-KR';
+    realtimeRec.interimResults = true;
+    realtimeRec.continuous = true;
+
+    realtimeBaseText = (questionInput.value || '').trim();
+    realtimeFinal = '';
+    realtimeInterim = '';
+    isRealtimeListening = true;
+
+    realtimeRec.onresult = (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = (e.results[i][0].transcript || '').trim();
+        if (!t) continue;
+
+        if (e.results[i].isFinal) {
+          realtimeFinal += (realtimeFinal ? ' ' : '') + t;
+        } else {
+          interim += (interim ? ' ' : '') + t;
+        }
+      }
+      realtimeInterim = interim.trim();
+      applyRealtimeTextToTextarea();
+      voiceStatus.textContent = realtimeInterim ? realtimeInterim : '🎙 인식 중...';
+    };
+
+    realtimeRec.onerror = (e) => {
+      // 실시간 표시가 실패해도 Whisper 최종은 가능하므로 "치명적"으로 보지 않음
+      voiceStatus.textContent =
+        e.error === 'not-allowed' ? '마이크 권한이 필요합니다.' :
+        e.error === 'no-speech' ? '음성이 감지되지 않았습니다.' :
+        ('실시간 인식 오류: ' + e.error);
+    };
+
+    realtimeRec.onend = () => {
+      isRealtimeListening = false;
+      realtimeInterim = '';
+      applyRealtimeTextToTextarea();
+      // onend는 stop 시점에 자연스럽게 발생
+    };
+
+    try {
+      realtimeRec.start();
+      return true;
+    } catch (_) {
+      isRealtimeListening = false;
+      return false;
+    }
+  }
+
+  function stopRealtimeSpeech() {
+    if (!realtimeRec) return;
+    try { realtimeRec.stop(); } catch (_) {}
+  }
+
+  // =========================
+  // ✅ Hybrid: 최종 확정(Whisper /api/stt)
+  // =========================
+  let mediaRecorder = null;
+  let chunks = [];
+
+  function setVoiceUIButton(recording) {
+    isRecording = recording;
+    if (recording) {
+      voiceBtn.classList.add('listening', '!border-red-500/30', '!bg-red-500/15', '!text-red-300');
+      voiceBtn.textContent = '⏹️ 음성 끝내기';
+      voiceStatus.textContent = '🎙 음성 입력 중... (실시간 표시됨)';
+    } else {
+      voiceBtn.classList.remove('listening', '!border-red-500/30', '!bg-red-500/15', '!text-red-300');
+      voiceBtn.textContent = '🎤 음성 질문';
+    }
+  }
+
+  function inferExtFromMime(mime) {
+    const m = (mime || '').toLowerCase();
+    if (m.includes('webm')) return 'webm';
+    if (m.includes('ogg')) return 'ogg';
+    if (m.includes('mp4')) return 'mp4';
+    if (m.includes('wav')) return 'wav';
+    return 'webm';
+  }
+
+  async function whisperTranscribe(blob) {
+    const fd = new FormData();
+
+    const ext = inferExtFromMime(blob.type);
+    fd.append('audio', blob, `speech.${ext}`);
+
+    const res = await fetch(API_BASE + '/api/stt', { method: 'POST', body: fd });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      throw new Error(data.error || ('STT 실패 (HTTP ' + res.status + ')'));
+    }
+
+    const text = (data && data.text) ? String(data.text) : '';
+    return text.trim();
+  }
+
+  function replaceLiveTextWithWhisper(whisperText) {
+    // 실시간으로 넣었던 live(웹스피치) 부분을 Whisper 결과로 “정제”하는 전략:
+    // - 음성 시작 전 base 텍스트는 유지
+    // - 음성 입력 부분은 Whisper 결과로 교체
+    const base = (realtimeBaseText || '').trim();
+    const w = (whisperText || '').trim();
+    if (!w) return;
+
+    const composed = base ? (base + '\n' + w).trim() : w;
+    questionInput.value = composed;
+
+    try {
+      questionInput.focus();
+      questionInput.selectionStart = questionInput.selectionEnd = questionInput.value.length;
+    } catch (_) {}
+  }
+
+  async function startRecordingHybrid() {
+    notifyParentPause();
+    if (!isQuestionEnabled()) setQuestionUIEnabled(true);
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      voiceStatus.textContent = '이 브라우저는 getUserMedia를 지원하지 않습니다.';
+      return;
+    }
+
+    // 1) 실시간 표시(WebSpeech) 시작(가능하면)
+    const realtimeOk = startRealtimeSpeech();
+    if (!realtimeOk) {
+      // 실시간 표시 실패해도 Whisper 최종은 가능
+      voiceStatus.textContent = '🎙 음성 입력 중... (실시간 표시는 브라우저 미지원)';
+    }
+
+    // 2) Whisper용 녹음 시작
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    const preferredTypes = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+      'audio/ogg'
+    ];
+    let mimeType = '';
+    for (const t of preferredTypes) {
+      if (MediaRecorder.isTypeSupported(t)) { mimeType = t; break; }
+    }
+
+    chunks = [];
+    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) chunks.push(e.data);
+    };
+
+    mediaRecorder.onstop = async () => {
+      // 마이크 트랙 정리
+      try { stream.getTracks().forEach(tr => tr.stop()); } catch (_) {}
+
+      // 실시간 인식 종료
+      stopRealtimeSpeech();
+
+      setVoiceUIButton(false);
+
+      if (!chunks.length) {
+        voiceStatus.textContent = '녹음 데이터가 없습니다. 다시 시도해 주세요.';
+        return;
+      }
+
+      // Whisper 전사
+      voiceStatus.textContent = '🧠 Whisper 전사 중...';
+      try {
+        const blob = new Blob(chunks, { type: mediaRecorder?.mimeType || 'audio/webm' });
+        const text = await whisperTranscribe(blob);
+
+        if (!text) {
+          voiceStatus.textContent = '전사 결과가 비어 있습니다. (조금 더 크게 말해보세요)';
+          return;
+        }
+
+        whisperFinalText = text;
+
+        // ✅ 실시간(WebSpeech) 텍스트를 Whisper 결과로 “정제/교체”
+        replaceLiveTextWithWhisper(whisperFinalText);
+
+        voiceStatus.textContent = '✅ 전사 완료: 고품질 결과로 반영했습니다.';
+      } catch (err) {
+        voiceStatus.textContent = '❗ 전사 오류: ' + (err?.message || 'unknown');
+      }
+    };
+
+    mediaRecorder.start();
+    setVoiceUIButton(true);
+  }
+
+  function stopRecordingHybrid() {
+    // Whisper용 녹음 stop → onstop에서 whisper 전사 수행
+    if (mediaRecorder) {
+      try { mediaRecorder.stop(); } catch (_) {}
+    }
+    // 실시간 인식도 stop
+    stopRealtimeSpeech();
+  }
+
+  // =========================
   // 부모 메시지 처리
+  // =========================
   window.addEventListener('message', function (e) {
     if (!e.data) return;
 
@@ -321,6 +564,10 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
       showOverlay();
       setOverlayPending(false);
       setQuestionUIEnabled(false);
+
+      // 재생 중엔 음성도 중단
+      if (isRecording) stopRecordingHybrid();
+
       return;
     }
 
@@ -369,137 +616,26 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     notifyParentPause();
   });
 
-  // =====================================================
-  // ✅ Whisper(서버 STT)용 녹음 + 전사
-  // =====================================================
-  let mediaRecorder = null;
-  let chunks = [];
-  let isRecording = false;
-
-  function setVoiceUI(recording) {
-    isRecording = recording;
-    if (recording) {
-      voiceBtn.classList.add('listening', '!border-red-500/30', '!bg-red-500/15', '!text-red-300');
-      voiceBtn.textContent = '⏹️ 녹음 끝내기';
-      voiceStatus.textContent = '🎙 녹음 중... (끝내기 누르면 전사합니다)';
-    } else {
-      voiceBtn.classList.remove('listening', '!border-red-500/30', '!bg-red-500/15', '!text-red-300');
-      voiceBtn.textContent = '🎤 음성 질문';
-    }
-  }
-
-  function appendTranscriptToInput(text) {
-    const t = (text || '').trim();
-    if (!t) return;
-
-    const base = (questionInput.value || '').trim();
-    questionInput.value = base ? (base + '\n' + t) : t;
-    questionInput.focus();
-    try { questionInput.selectionStart = questionInput.selectionEnd = questionInput.value.length; } catch (_) {}
-  }
-
-  async function startRecording() {
-    notifyParentPause();
-    if (!isQuestionEnabled()) setQuestionUIEnabled(true);
-
-    // getUserMedia
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-    // 브라우저별 mimeType 호환
-    const preferredTypes = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/ogg;codecs=opus',
-      'audio/ogg'
-    ];
-    let mimeType = '';
-    for (const t of preferredTypes) {
-      if (MediaRecorder.isTypeSupported(t)) { mimeType = t; break; }
-    }
-
-    chunks = [];
-    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) chunks.push(e.data);
-    };
-
-    mediaRecorder.onstop = async () => {
-      // 트랙 정리(마이크 점유 해제)
-      try { stream.getTracks().forEach(tr => tr.stop()); } catch (_) {}
-
-      setVoiceUI(false);
-
-      if (!chunks.length) {
-        voiceStatus.textContent = '녹음 데이터가 없습니다. 다시 시도해 주세요.';
-        return;
-      }
-
-      // blob 생성
-      const blob = new Blob(chunks, { type: mediaRecorder && mediaRecorder.mimeType ? mediaRecorder.mimeType : 'audio/webm' });
-
-      // 전사 요청
-      voiceStatus.textContent = '🧠 전사 중...';
-      try {
-        const fd = new FormData();
-        // 서버 multer 필드명: audio
-        fd.append('audio', blob, 'speech.webm');
-
-        const res = await fetch(API_BASE + '/api/stt', { method: 'POST', body: fd });
-        const data = await res.json().catch(() => ({}));
-
-        if (!res.ok) {
-          throw new Error(data.error || ('STT 실패 (HTTP ' + res.status + ')'));
-        }
-
-        const text = (data && data.text) ? String(data.text) : '';
-        if (!text.trim()) {
-          voiceStatus.textContent = '전사 결과가 비어 있습니다. (조금 더 크게 말해보세요)';
-          return;
-        }
-
-        voiceStatus.textContent = '✅ 전사 완료: 입력창에 반영했습니다.';
-        appendTranscriptToInput(text);
-      } catch (err) {
-        voiceStatus.textContent = '❗ 전사 오류: ' + (err?.message || 'unknown');
-      }
-    };
-
-    mediaRecorder.start();
-    setVoiceUI(true);
-  }
-
-  function stopRecording() {
-    if (!mediaRecorder) return;
-    try {
-      mediaRecorder.stop();
-    } catch (_) {}
-  }
-
-  // 음성 버튼 토글
+  // ✅ 음성 버튼: “실시간 표시 + 최종 Whisper 정제” 토글
   voiceBtn.addEventListener('click', async function () {
     if (voiceBtn.disabled) return;
 
-    // 녹음 중이면 stop
     if (isRecording) {
-      stopRecording();
-      return;
-    }
-
-    // 녹음 시작
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      voiceStatus.textContent = '이 브라우저는 getUserMedia를 지원하지 않습니다.';
+      // 끝내기
+      stopRecordingHybrid();
       return;
     }
 
     try {
-      await startRecording();
+      await startRecordingHybrid();
     } catch (err) {
-      voiceStatus.textContent =
+      const msg =
         (err && err.name === 'NotAllowedError')
           ? '마이크 권한이 필요합니다. 브라우저 권한을 허용해 주세요.'
           : ('녹음 시작 실패: ' + (err?.message || 'unknown'));
-      setVoiceUI(false);
+      voiceStatus.textContent = msg;
+      setVoiceUIButton(false);
+      stopRealtimeSpeech();
     }
   });
 
@@ -537,6 +673,11 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   setOverlayPending(false);
   setQuestionUIEnabled(false);
 
-  // 초기 힌트
-  voiceStatus.textContent = '';
+  // 초기 안내
+  if (!SpeechRecognition) {
+    // 실시간 표시는 불가하지만 Whisper 최종은 가능(녹음/전사만 사용)
+    voiceStatus.textContent = '실시간 자막(Web Speech)이 미지원입니다. (끝내기 후 Whisper로 전사됩니다)';
+  } else {
+    voiceStatus.textContent = '';
+  }
 })();
