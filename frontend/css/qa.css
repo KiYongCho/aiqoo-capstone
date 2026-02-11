@@ -1,138 +1,115 @@
-/* =========================
-   질문 예시 칩
-   ========================= */
-.qa-chip {
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(244, 244, 245, 0.85);
-  border-radius: 9999px;
-  padding: 6px 10px;
-  font-size: 12px;
-  line-height: 1;
-  transition: transform 120ms ease, background 120ms ease, border-color 120ms ease, opacity 120ms ease;
-}
-.qa-chip:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.18);
-  transform: translateY(-1px);
-}
-.qa-chip:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  transform: none;
-}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>강의 Q&A</title>
 
-/* =========================
-   강의 미재생 상태 안내 애니메이션
-   ========================= */
-.aiqa-hint-pulse {
-  animation: aiqaHintPulse 1.4s ease-in-out infinite;
-}
-@keyframes aiqaHintPulse {
-  0%   { opacity: .55; text-shadow: 0 0 0 rgba(99,102,241,0); }
-  50%  { opacity: 1;   text-shadow: 0 0 14px rgba(99,102,241,.35); }
-  100% { opacity: .55; text-shadow: 0 0 0 rgba(99,102,241,0); }
-}
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="../css/qa.css" />
+</head>
 
-/* =========================
-   ✅ Q&A 재생중 오버레이(모달)
-   - fixed ❌  → absolute ✅ : iframe 영역 내부만 덮음
-   ========================= */
-.qa-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 9999;
-  display: grid;
-  place-items: center;
-  padding: 18px;
-}
+<body class="relative flex h-full flex-col overflow-hidden bg-[#0c0c0e] text-zinc-50 antialiased">
 
-.qa-overlay-dim {
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,0.62);
-  backdrop-filter: blur(6px);
-}
+  <!-- ✅ 재생 중: Q&A 영역 내부 중앙 오버레이 모달 -->
+  <div id="playOverlay" class="qa-overlay hidden" aria-hidden="true">
+    <div class="qa-overlay-dim"></div>
 
-.qa-overlay-card {
-  position: relative;
-  width: min(340px, calc(100% - 32px));
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background:
-    radial-gradient(120% 120% at 50% 0%,
-      rgba(99,102,241,0.34) 0%,
-      rgba(255,255,255,0.06) 36%,
-      rgba(0,0,0,0.42) 100%);
-  box-shadow:
-    0 28px 80px rgba(0,0,0,0.65),
-    0 0 0 1px rgba(255,255,255,0.04) inset;
-  padding: 18px 18px 16px;
-  text-align: center;
-  transform-origin: center;
-  animation: qaOverlayIn 180ms ease-out;
-  cursor: pointer;
-  user-select: none;
-}
+    <button type="button" id="overlayBtn" class="qa-overlay-card" aria-label="질문 시작">
+      <div class="qa-overlay-badge">LIVE</div>
 
-@keyframes qaOverlayIn {
-  from { opacity: 0; transform: translateY(6px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
+      <div class="qa-overlay-title">:: 모두의 Q&A AIQA ::</div>
 
-.qa-overlay-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(255,255,255,0.18);
-}
+      <div class="qa-overlay-desc">
+        영상 재생 중에는 질문 입력이 잠겨 있습니다.<br />
+        아래 버튼을 눌러 영상을 멈추고 질문을 시작하세요.
+      </div>
 
-.qa-overlay-card:active {
-  transform: translateY(0px) scale(0.99);
-}
+      <div class="qa-overlay-cta" id="overlaySub">▶ 질문 시작하기 (영상 멈춤)</div>
+    </button>
+  </div>
 
-.qa-overlay-card:disabled {
-  opacity: 0.72;
-  cursor: not-allowed;
-  transform: none;
-}
+  <!-- 툴바 -->
+  <div class="shrink-0 border-b border-white/[0.06] bg-white/[0.02] p-4">
+    <div class="mb-3 flex justify-end">
+      <span id="hintLabel" class="text-xs font-semibold text-zinc-300/80 tracking-wide">
+        AIQA에게질문하세요!
+      </span>
+    </div>
 
-.qa-overlay-badge {
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: 9999px;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  color: rgba(255,255,255,0.92);
-  background: rgba(239, 68, 68, 0.18);
-  border: 1px solid rgba(239, 68, 68, 0.28);
-  box-shadow: 0 0 18px rgba(239,68,68,0.12);
-}
+    <div class="mb-3 flex gap-2.5">
+      <button type="button"
+        class="btn-voice flex-1 min-w-0 rounded-lg border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm font-semibold text-zinc-400 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
+        id="voiceBtn" disabled>🎤 음성 질문</button>
 
-.qa-overlay-title {
-  margin-top: 10px;
-  font-size: 15px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  color: rgba(244,244,245,0.96);
-  text-shadow: 0 0 18px rgba(99,102,241,0.30);
-}
+      <button type="button"
+        class="btn-text flex-1 min-w-0 rounded-lg border-0 bg-gradient-to-b from-indigo-500 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+        id="submitBtn" disabled>✏️ 텍스트 질문</button>
+    </div>
 
-.qa-overlay-desc {
-  margin-top: 10px;
-  font-size: 12px;
-  line-height: 1.55;
-  color: rgba(161,161,170,0.95);
-}
+    <div class="min-h-[18px] mb-2.5 text-xs tracking-wide text-zinc-500" id="voiceStatus"></div>
 
-.qa-overlay-cta {
-  margin-top: 14px;
-  border-radius: 12px;
-  padding: 10px 12px;
-  font-size: 13px;
-  font-weight: 800;
-  color: rgba(255,255,255,0.95);
-  background: rgba(99,102,241,0.28);
-  border: 1px solid rgba(99,102,241,0.35);
-  box-shadow: 0 10px 24px rgba(99,102,241,0.15);
-}
- 
+    <div class="mb-2 text-[11px] text-zinc-500">
+      <span class="text-zinc-400 font-semibold">강의키:</span>
+      <span id="videoKeyLabel" class="ml-1">default</span>
+      <span class="ml-2 text-zinc-600" id="providerLabel"></span>
+    </div>
+
+    <textarea
+      id="questionInput"
+      placeholder="영상이 멈추면 질문할 수 있습니다."
+      maxlength="500"
+      disabled
+      class="w-full min-h-[108px] resize-y rounded-lg border border-white/[0.08] bg-white/[0.04] px-3.5 py-3 text-sm leading-normal text-zinc-50 placeholder-zinc-500 transition focus:border-indigo-500/50 focus:outline-none focus:ring-3 focus:ring-indigo-500/20 disabled:opacity-60 disabled:cursor-not-allowed"
+    ></textarea>
+
+    <div class="mt-2">
+      <div class="mb-1 text-[11px] text-zinc-500">질문 예시</div>
+      <div id="exampleChips" class="flex flex-wrap gap-2">
+        <button type="button" data-example="방금 설명한 핵심 개념을 3줄로 요약해 주세요." class="qa-chip">핵심 요약</button>
+        <button type="button" data-example="이 개념을 비전공자도 이해할 수 있는 일상 예시로 설명해 주세요." class="qa-chip">일상 예시</button>
+        <button type="button" data-example="지금 나온 용어(키워드) 5개를 뽑고 각각 의미를 알려주세요." class="qa-chip">용어 5개</button>
+        <button type="button" data-example="실습을 위해 간단한 예제 코드와 단계별 설명을 만들어 주세요." class="qa-chip">예제 코드</button>
+      </div>
+    </div>
+
+    <div class="mt-3 flex justify-end hidden" id="resetWrap">
+      <button type="button"
+        class="text-xs font-medium text-zinc-500 underline-offset-2 transition hover:text-zinc-300 hover:underline"
+        id="resetBtn">🗑️ 답변 초기화</button>
+    </div>
+  </div>
+
+  <!-- Q&A 목록 -->
+  <div class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-3.5" id="qaList">
+    <div class="text-center py-10 px-5 text-sm leading-relaxed text-zinc-600" id="qaEmpty">
+      아직 질문이 없습니다. 첫 질문을 남겨보세요.
+    </div>
+  </div>
+
+  <!-- 초기화 확인 모달 -->
+  <div class="fixed inset-0 z-[1000] hidden items-center justify-center bg-black/60 p-4" id="resetModal" aria-hidden="true">
+    <div class="w-full max-w-[320px] rounded-xl border border-white/10 bg-zinc-800 p-5 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="resetModalTitle">
+      <h2 class="mb-2 text-[15px] font-semibold text-zinc-50" id="resetModalTitle">🗑️ 답변 초기화</h2>
+      <p class="mb-5 text-sm leading-normal text-zinc-400">현재 강의(강의키)의 모든 질문과 답변이 삭제됩니다. 진행할까요?</p>
+      <div class="flex gap-2.5 justify-end">
+        <button type="button" class="rounded-lg border border-white/20 bg-transparent px-4 py-2.5 text-sm font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200" id="resetModalCancel">✕ 취소</button>
+        <button type="button" class="rounded-lg border-0 bg-red-500/20 px-4 py-2.5 text-sm font-medium text-red-300 transition hover:bg-red-500/30 hover:text-red-200" id="resetModalConfirm">🗑️ 초기화</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ✅ TOP 버튼 (우하단 플로팅) -->
+  <button
+    type="button"
+    id="toTopBtn"
+    class="qa-top hidden"
+    aria-label="맨 위로"
+    title="맨 위로"
+  >
+    ⬆ TOP
+  </button>
+
+  <script src="../js/qa.js"></script>
+</body>
+</html>
