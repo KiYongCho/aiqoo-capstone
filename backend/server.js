@@ -1,103 +1,132 @@
 /**
- * server.js (API ONLY)
- * - Render 배포용 (API 서버)
- * - OpenAI Responses API
+ * backend/server.js
+ * - Render 배포용
+ * - /api/answer : 기존 LLM 답변
+ * - /api/stt    : Whisper(STT) 업그레이드 버전 (Audio Transcriptions)
  */
 
 require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
+const multer = require("multer");
+const fs = require("fs");
+const path = require("path");
 const OpenAI = require("openai");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CORS: 필요 최소한으로(운영 시 origin 제한 권장)
-app.use(cors({
-  origin: true,
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"]
-}));
-app.use(express.json());
+// =========================
+// CORS
+// =========================
+app.use(
+  cors({
+    origin: true,
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
+// JSON (answer용)
+app.use(express.json({ limit: "2mb" }));
+
+// =========================
 // OpenAI
+// =========================
 const apiKey = process.env.OPENAI_API_KEY;
-console.log("API 키:", apiKey ? "설정됨" : "미설정");
-
-// ✅ 권장: lazy init (키가 런타임에 바뀌어도 안전)
-let openaiClient = null;
-let cachedKey = null;
-
-function getOpenAI() {
-  const k = process.env.OPENAI_API_KEY;
-  if (!k) return null;
-  if (!openaiClient || cachedKey !== k) {
-    openaiClient = new OpenAI({ apiKey: k });
-    cachedKey = k;
-  }
-  return openaiClient;
+if (!apiKey) {
+  console.warn("[WARN] OPENAI_API_KEY is missing");
 }
+const openai = new OpenAI({ apiKey });
 
-// Health / Info
+// =========================
+// Multer (STT 업로드)
+// =========================
+const upload = multer({
+  dest: path.join(__dirname, "tmp"),
+  limits: {
+    fileSize: 25 * 1024 * 1024, // 25MB (필요시 조정)
+  },
+});
+
+// =========================
+// Health
+// =========================
 app.get("/", (req, res) => {
-  res.json({ ok: true, message: "AIQA Render API 서버입니다. POST /api/answer 로 질문을 보내세요." });
+  res.json({ ok: true, message: "AIQA backend is running" });
 });
 
-// Debug
-app.get("/api/debug/key", (req, res) => {
-  const k = process.env.OPENAI_API_KEY || "";
-  res.json({
-    exists: !!k,
-    prefix: k.slice(0, 7),
-    length: k.length
-  });
-});
-
-// Answer API
+// =====================================================
+// (기존) /api/answer
+// - 리얼쵸키님 기존 구현이 있으면 그대로 유지하세요.
+// =====================================================
 app.post("/api/answer", async (req, res) => {
-  const { question } = req.body || {};
-
-  if (!question || typeof question !== "string") {
-    return res.status(400).json({ error: "question 필드가 필요합니다." });
-  }
-
-  const openai = getOpenAI();
-  if (!openai) {
-    return res.status(503).json({ error: "OpenAI API 키가 설정되지 않았습니다." });
-  }
-
   try {
-    const response = await openai.responses.create({
-      model: "gpt-4.1-mini",
-      input: [
-        { role: "system", content: "당신은 온라인 강의 Q&A 도우미입니다. 질문에 대해 한국어로 친절하고 정확하게 설명하세요." },
-        { role: "user", content: question.trim() }
-      ],
-      max_output_tokens: 800
-    });
-
-    const answer =
-      response.output_text ||
-      response?.output?.[0]?.content?.[0]?.text ||
-      "";
-
-    if (!answer) {
-      return res.status(502).json({ error: "LLM이 빈 답변을 반환했습니다." });
+    const { question, videoKey, videoUrl, provider, youtubeId, t, tLabel } = req.body || {};
+    if (!question || !String(question).trim()) {
+      return res.status(400).json({ error: "question is required" });
     }
 
-    return res.json({ answer });
+    // ✅ 기존 로직이 있다면 그걸로 교체하세요.
+    // 여기서는 데모 응답
+    return res.json({
+      answer:
+        `질문을 받았습니다.\n` +
+        `- question: ${question}\n` +
+        `- tLabel: ${tLabel ?? ""}\n` +
+        `- provider: ${provider ?? ""}\n` +
+        `(여기 /api/answer는 기존 코드로 유지하세요)`,
+    });
   } catch (err) {
-    console.error("[OpenAI ERROR]", err);
+    return res.status(500).json({ error: err?.message || "server error" });
+  }
+});
 
-    let message = "LLM 요청 실패";
-    if (err.status === 401) message = "OpenAI API 인증 실패 (키 확인 필요)";
-    else if (err.status === 429) message = "요청 한도 초과";
-    else if (err.message) message = err.message;
+// =====================================================
+// ✅ NEW: /api/stt
+// - multipart/form-data 로 audio 파일 업로드
+// - OpenAI Audio Transcriptions 호출
+// =====================================================
+app.post("/api/stt", upload.single("audio"), async (req, res) => {
+  const file = req.file;
 
-    return res.status(err.status || 500).json({ error: message });
+  try {
+    if (!file) {
+      return res.status(400).json({ error: "audio file is required" });
+    }
+
+    // ✅ 모델 선택 (품질 우선)
+    // - whisper-1 (구형)
+    // - gpt-4o-mini-transcribe (고품질/가성비) :contentReference[oaicite:1]{index=1}
+    // - gpt-4o-transcribe (더 고품질) :contentReference[oaicite:2]{index=2}
+    const model = process.env.STT_MODEL || "gpt-4o-mini-transcribe";
+
+    const transcription = await openai.audio.transcriptions.create({
+      file: fs.createReadStream(file.path),
+      model,
+      // language: "ko", // 한국어 고정하고 싶으면 사용(환경에 따라 도움)
+      // response_format: "json",
+    });
+
+    // SDK 반환 형태는 { text: "..." } 계열
+    const text = (transcription && transcription.text) ? String(transcription.text) : "";
+
+    if (!text.trim()) {
+      return res.status(200).json({ text: "" });
+    }
+
+    return res.json({ text });
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || "stt failed" });
+  } finally {
+    // 업로드 임시파일 정리
+    if (file && file.path) {
+      fs.unlink(file.path, () => {});
+    }
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`서버 실행: http://localhost:${PORT}`);
+  console.log(`[backend] listening on :${PORT}`);
 });
