@@ -1,10 +1,4 @@
-.btn-voice.listening { animation: pulse-mic 1.2s ease-in-out infinite; }
-@keyframes pulse-mic {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(239,68,68,0.2); }
-  50% { opacity: 0.9; box-shadow: 0 0 0 4px rgba(239,68,68,0); }
-}
-
-/* 질문 예시 칩 */
+/* ===== 추가: 질문 예시 칩 ===== */
 .qa-chip {
   border: 1px solid rgba(255, 255, 255, 0.10);
   background: rgba(255, 255, 255, 0.04);
@@ -26,7 +20,7 @@
   transform: none;
 }
 
-/* 강의 미재생 상태 안내 애니메이션 */
+/* ===== 추가: 강의 미재생 상태 안내 애니메이션 ===== */
 .aiqa-hint-pulse {
   animation: aiqaHintPulse 1.4s ease-in-out infinite;
 }
@@ -35,4 +29,3 @@
   50%  { opacity: 1;   text-shadow: 0 0 14px rgba(99,102,241,.35); }
   100% { opacity: .55; text-shadow: 0 0 0 rgba(99,102,241,0); }
 }
-
