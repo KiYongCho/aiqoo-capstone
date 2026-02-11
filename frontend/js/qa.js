@@ -45,6 +45,11 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   let isPlaying = false;
   let overlayPauseRequested = false;
 
+  // ✅ STT 상태(추가)
+  let isListening = false;
+  let sttFinal = '';
+  let sttInterim = '';
+
   function storageKey() {
     return 'lecture-qa:' + (videoKey || 'default');
   }
@@ -113,7 +118,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     if (resetWrap) resetWrap.classList.toggle('hidden', !enabled);
 
     if (hintLabel) {
-      // 재생 중에는 오버레이가 떠 있으니 힌트는 상태만 전달
       hintLabel.classList.toggle('aiqa-hint-pulse', !enabled);
       hintLabel.textContent = enabled
         ? '질문을 입력하고 전송해 주세요.'
@@ -313,6 +317,52 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     }
   }
 
+  // =========================
+  // ✅ STT 유틸(추가)
+  // =========================
+  function setVoiceUIListening(listening) {
+    isListening = listening;
+    if (listening) {
+      voiceStatus.textContent = '듣는 중... (말하면 입력창에 텍스트가 들어갑니다)';
+      voiceBtn.classList.add('listening', '!border-red-500/30', '!bg-red-500/15', '!text-red-300');
+      voiceBtn.textContent = '⏹️ 끝내기';
+    } else {
+      voiceBtn.classList.remove('listening', '!border-red-500/30', '!bg-red-500/15', '!text-red-300');
+      voiceBtn.textContent = '🎤 음성 질문';
+    }
+  }
+
+  function applySttToTextarea() {
+    // ✅ 최종+중간 결과를 입력창에 반영
+    const composed = (sttFinal + (sttInterim ? (' ' + sttInterim) : '')).trim();
+
+    if (!composed) return;
+
+    // 사용자가 기존에 타이핑한 내용이 있으면 덮어쓰기 대신 "이어붙이기"
+    const base = (questionInput.value || '').trim();
+    if (!base) {
+      questionInput.value = composed;
+    } else {
+      // 이미 입력창이 composed로 시작하면 업데이트만
+      if (base.startsWith(sttFinal) || base === composed) {
+        questionInput.value = composed;
+      } else {
+        questionInput.value = (base + '\n' + composed).trim();
+      }
+    }
+
+    // 커서 맨 뒤
+    try {
+      questionInput.focus();
+      questionInput.selectionStart = questionInput.selectionEnd = questionInput.value.length;
+    } catch (_) {}
+  }
+
+  function resetSttBuffer() {
+    sttFinal = '';
+    sttInterim = '';
+  }
+
   // 부모 메시지 처리
   window.addEventListener('message', function (e) {
     if (!e.data) return;
@@ -321,7 +371,11 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
       isPlaying = true;
       showOverlay();
       setOverlayPending(false);
+
+      // 재생 중에는 질문 잠금 + (안전) STT 중이면 종료
       setQuestionUIEnabled(false);
+      try { if (isListening && recognition) recognition.stop(); } catch (_) {}
+
       return;
     }
 
@@ -370,63 +424,102 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     notifyParentPause();
   });
 
-  // 음성 인식
+  // =========================
+  // ✅ 음성 인식 (수정 핵심)
+  // - 기존: 음성 끝나면 submitQuestion(finalTranscript)로 즉시 전송
+  // - 변경: 음성 결과를 questionInput에 반영하고, 사용자가 "텍스트 질문" 버튼으로 전송
+  // =========================
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition = null;
 
   if (SpeechRecognition) {
     recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = true;
+    recognition.continuous = true;     // ✅ 길게 말해도 끊김 완화
+    recognition.interimResults = true; // ✅ 중간 결과도 입력창에 반영
     recognition.lang = 'ko-KR';
   }
 
   if (recognition) {
     speechSupported = true;
 
+    recognition.onresult = function (e) {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const transcript = (e.results[i][0].transcript || '').trim();
+        if (!transcript) continue;
+
+        if (e.results[i].isFinal) {
+          sttFinal += (sttFinal ? ' ' : '') + transcript;
+        } else {
+          interim += (interim ? ' ' : '') + transcript;
+        }
+      }
+
+      sttInterim = interim.trim();
+
+      // ✅ 입력창에 즉시 반영
+      applySttToTextarea();
+
+      // ✅ 상태 라벨은 짧게
+      voiceStatus.textContent = sttInterim ? sttInterim : '듣는 중...';
+    };
+
+    recognition.onend = function () {
+      // ✅ 종료 시: 최종 텍스트를 입력창에 "확정 반영"하고, 자동 전송은 하지 않음
+      setVoiceUIListening(false);
+
+      sttInterim = '';
+      applySttToTextarea();
+
+      if (sttFinal && sttFinal.trim()) {
+        voiceStatus.textContent = '✅ 음성이 텍스트로 입력창에 반영되었습니다. (수정 후 전송 가능)';
+        // 다음 음성 입력을 위해 버퍼는 초기화(입력창에는 남김)
+        resetSttBuffer();
+      } else {
+        voiceStatus.textContent = '';
+      }
+
+      // UI 동기화
+      syncQAUI();
+    };
+
+    recognition.onerror = function (e) {
+      setVoiceUIListening(false);
+
+      const msg =
+        e.error === 'no-speech' ? '음성이 없습니다.' :
+        e.error === 'not-allowed' ? '마이크 권한이 필요합니다. 브라우저 권한을 허용해 주세요.' :
+        '음성 인식 오류. 다시 시도하세요.';
+
+      voiceStatus.textContent = msg;
+      resetSttBuffer();
+      syncQAUI();
+    };
+
     voiceBtn.addEventListener('click', function () {
       if (voiceBtn.disabled) return;
 
+      // ✅ 음성 시작 시: 반드시 부모에 pause 요청
       notifyParentPause();
 
-      if (voiceBtn.classList.contains('listening')) {
+      if (isListening) {
         try { recognition.stop(); } catch (_) {}
         return;
       }
 
-      voiceStatus.textContent = '듣는 중...';
-      voiceBtn.classList.add('listening', '!border-red-500/30', '!bg-red-500/15', '!text-red-300');
-      voiceBtn.textContent = '⏹️ 끝내기';
+      // 질문 UI가 활성화되지 않은 상태(경계 케이스)면 우선 활성화
+      if (!isQuestionEnabled()) setQuestionUIEnabled(true);
 
-      let finalTranscript = '';
-
-      recognition.onresult = function (e) {
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          const transcript = e.results[i][0].transcript;
-          if (e.results[i].isFinal) finalTranscript += transcript;
-          else voiceStatus.textContent = transcript || '듣는 중...';
-        }
-      };
-
-      recognition.onend = function () {
-        voiceBtn.classList.remove('listening', '!border-red-500/30', '!bg-red-500/15', '!text-red-300');
-        voiceBtn.textContent = '🎤 음성 질문';
-        voiceStatus.textContent = '';
-        if (finalTranscript) submitQuestion(finalTranscript);
-      };
-
-      recognition.onerror = function (e) {
-        voiceBtn.classList.remove('listening', '!border-red-500/30', '!bg-red-500/15', '!text-red-300');
-        voiceBtn.textContent = '🎤 음성 질문';
-        voiceStatus.textContent = e.error === 'no-speech' ? '음성이 없습니다.' : '음성 인식 오류. 다시 시도하세요.';
-      };
+      // STT 시작
+      resetSttBuffer();
+      setVoiceUIListening(true);
 
       try { recognition.start(); } catch (_) {
-        voiceBtn.classList.remove('listening', '!border-red-500/30', '!bg-red-500/15', '!text-red-300');
-        voiceBtn.textContent = '🎤 음성 질문';
+        setVoiceUIListening(false);
         voiceStatus.textContent = '마이크를 사용할 수 없습니다.';
       }
     });
+
   } else {
     speechSupported = false;
     voiceBtn.disabled = true;
@@ -467,4 +560,3 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   setOverlayPending(false);
   setQuestionUIEnabled(false);
 })();
- 
