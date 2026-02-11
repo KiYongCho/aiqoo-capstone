@@ -1,4 +1,4 @@
-// qa.js (JSON 단발 응답 버전: 스트리밍 의존 제거)
+// qa.js (오버레이: 재생 중 중앙 모달 + 클릭하면 pause 요청 + paused 오면 활성화)
 const API_BASE = "https://aiqa-capstone.onrender.com";
 
 (function () {
@@ -42,8 +42,8 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   let youtubeId = '';
 
   let speechSupported = false;
-  let isPlaying = false;            // ✅ 부모로부터 videoPlaying/Paused로 갱신
-  let overlayPauseRequested = false; // ✅ 오버레이 클릭 후 대기 플래그
+  let isPlaying = false;
+  let overlayPauseRequested = false;
 
   function storageKey() {
     return 'lecture-qa:' + (videoKey || 'default');
@@ -93,10 +93,11 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   function setOverlayPending(pending) {
     overlayPauseRequested = pending;
     if (!overlayBtn || !overlaySub) return;
+
     overlayBtn.disabled = pending;
     overlaySub.textContent = pending
       ? '멈추는 중… 잠시만 기다려 주세요'
-      : '눌러서 질문하기 (영상이 멈추고 입력이 활성화됩니다)';
+      : '▶ 질문 시작하기 (영상 멈춤)';
   }
 
   // =========================
@@ -112,12 +113,11 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     if (resetWrap) resetWrap.classList.toggle('hidden', !enabled);
 
     if (hintLabel) {
-      // 영상이 재생 중이면 오버레이가 뜨므로 힌트는 기본적으로 덜 강조
-      const pulse = !enabled;
-      hintLabel.classList.toggle('aiqa-hint-pulse', pulse);
+      // 재생 중에는 오버레이가 떠 있으니 힌트는 상태만 전달
+      hintLabel.classList.toggle('aiqa-hint-pulse', !enabled);
       hintLabel.textContent = enabled
         ? '질문을 입력하고 전송해 주세요.'
-        : (isPlaying ? '재생 중에는 오버레이를 눌러 질문을 시작하세요.' : '영상이 멈추면 질문할 수 있습니다.');
+        : (isPlaying ? '재생 중: 오버레이를 눌러 질문을 시작하세요.' : '영상이 멈추면 질문할 수 있습니다.');
     }
 
     chipButtons.forEach(btn => { btn.disabled = !enabled; });
@@ -197,11 +197,10 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     try { window.parent.postMessage({ type: 'qaFocus' }, getPostTargetOrigin()); } catch (_) {}
   }
 
-  // ✅ 오버레이 클릭 -> pause 요청 -> paused 오면 자동 활성화
+  // ✅ 오버레이 클릭 -> pause 요청 -> paused 오면 활성화
   if (overlayBtn) {
     overlayBtn.addEventListener('click', () => {
       if (!isPlaying) {
-        // 이미 멈춘 상태면 그냥 활성화
         hideOverlay();
         setOverlayPending(false);
         setQuestionUIEnabled(true);
@@ -210,7 +209,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
       }
       setOverlayPending(true);
       notifyParentPause();
-      // paused 신호가 오기 전까지는 오버레이 유지
     });
   }
 
@@ -321,8 +319,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
 
     if (e.data.type === 'videoPlaying') {
       isPlaying = true;
-
-      // ✅ 재생 중엔 오버레이 표시 + 질문 비활성화
       showOverlay();
       setOverlayPending(false);
       setQuestionUIEnabled(false);
@@ -331,8 +327,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
 
     if (e.data.type === 'videoPaused') {
       isPlaying = false;
-
-      // ✅ 멈추면 오버레이 숨김 + 질문 활성화
       hideOverlay();
       setOverlayPending(false);
       setQuestionUIEnabled(true);
@@ -352,11 +346,9 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     try { window.parent.postMessage({ type: 'qaReady' }, getPostTargetOrigin()); } catch (_) {}
   }
 
-  // UI 이벤트(질문 버튼은 “정지 상태”에서만 유효하지만 안전하게 pause 요청 유지)
+  // 질문 버튼(혹시 활성 상태에서 재생으로 바뀌더라도 pause 요청은 유지)
   submitBtn.addEventListener('click', function () {
-    // 재생 중이면 오버레이로 유도되는 구조지만, 혹시를 대비해 pause 요청
     notifyParentPause();
-
     const v = (questionInput.value || '').trim();
     if (!v) {
       setQuestionUIEnabled(true);
