@@ -13,6 +13,12 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소
   const videoKeyLabel = document.getElementById('videoKeyLabel');
   const providerLabel = document.getElementById('providerLabel');
 
+  // ✅ UX 추가 요소(qa.html에 있어야 함)
+  const resetWrap = document.getElementById('resetWrap');     // 초기화 버튼 wrapper (enabled일 때만 노출)
+  const hintLabel = document.getElementById('hintLabel');     // "AIQA에게질문하세요!" 문구
+  const chipsWrap = document.getElementById('exampleChips');  // 질문 예시 칩 컨테이너
+  const chipButtons = chipsWrap ? Array.from(chipsWrap.querySelectorAll('button[data-example]')) : [];
+
   // =========================
   // ✅ origin 처리
   // =========================
@@ -81,6 +87,42 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소
     return div.innerHTML;
   }
 
+  // =========================
+  // ✅ UX 동기화(초기화 버튼/힌트 애니/칩 enable)
+  // =========================
+  function isQuestionEnabled() {
+    return questionInput && !questionInput.disabled;
+  }
+
+  function syncQAUI() {
+    const enabled = isQuestionEnabled();
+
+    // 1) 답변 초기화 버튼: 질문 가능할 때만 노출
+    if (resetWrap) resetWrap.classList.toggle('hidden', !enabled);
+
+    // 2) 강의 미재생(질문 불가) 시 안내 문구 애니메이션 + 텍스트
+    if (hintLabel) {
+      hintLabel.classList.toggle('aiqa-hint-pulse', !enabled);
+      hintLabel.textContent = enabled
+        ? '질문을 입력하고 전송해 주세요.'
+        : 'AIQA에게질문하세요! (강의 재생 후 질문 가능)';
+    }
+
+    // 3) 질문 예시 칩: 질문 가능할 때만 활성화
+    chipButtons.forEach((btn) => { btn.disabled = !enabled; });
+  }
+
+  // 칩 클릭 -> 질문 입력에 자동 삽입
+  chipButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      const example = btn.getAttribute('data-example') || '';
+      questionInput.value = example;
+      questionInput.focus();
+      questionInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  });
+
   function render() {
     videoKeyLabel.textContent = videoKey || 'default';
     providerLabel.textContent = provider === 'youtube' ? ('YouTube · ' + (youtubeId || '')) : 'Native';
@@ -146,8 +188,11 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소
         captionHtml +
         answerHtml;
 
-      qaList.appendChild(div); 
+      qaList.appendChild(div);
     });
+
+    // ✅ 렌더 후에도 UX 상태 동기화(안전)
+    syncQAUI();
   }
 
   function getApiBase() {
@@ -159,6 +204,9 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소
     submitBtn.disabled = !enabled;
     voiceBtn.disabled = !(enabled && speechSupported);
     questionInput.placeholder = enabled ? '이 강의에 대해 질문을 입력하세요...' : '강의 재생 중에만 질문할 수 있습니다.';
+
+    // ✅ 상태가 바뀌면 UX도 즉시 동기화
+    syncQAUI();
   }
 
   function notifyParentPause() {
@@ -254,7 +302,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소
     questionInput.value = '';
     submitBtn.disabled = true;
     voiceBtn.disabled = true;
-    render();
+    render(); // render() 내부에서 syncQAUI()도 호출됨
 
     try {
       const answer = await requestAnswer({
@@ -270,8 +318,9 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소
     } catch (err) {
       updateLastItem({ error: (err && err.message) ? err.message : '연결 실패' });
     } finally {
+      // 질문 가능 상태이면 다시 활성화 (음성 버튼은 setQuestionUIEnabled가 결정)
       submitBtn.disabled = false;
-      // voiceBtn은 enabled 여부 + speechSupported에 따라 setQuestionUIEnabled에서 제어
+      syncQAUI();
       render();
     }
   }
@@ -433,6 +482,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com"; // ← Render 주소
     if (e.target === resetModal) closeResetModal();
   });
 
+  // 초기 렌더 & 초기 상태
   render();
-  setQuestionUIEnabled(false);
+  setQuestionUIEnabled(false); // 내부에서 syncQAUI() 호출됨
 })();
