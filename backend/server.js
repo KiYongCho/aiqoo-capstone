@@ -1,8 +1,13 @@
 /**
- * backend/server.js
+ * backend/server.js (FINAL)
  * - Render 배포용
- * - /api/answer : 기존 LLM 답변
- * - /api/stt    : Whisper(STT) 업그레이드 버전 (Audio Transcriptions)
+ * - /api/answer : 강의 Q&A 답변 생성
+ * - /api/stt    : Whisper 계열 STT (Audio Transcriptions)  ✅ 확장자 문제 해결(toFile 사용)
+ *
+ * 필요 환경변수(Render):
+ * - OPENAI_API_KEY=sk-...
+ * - (옵션) ANSWER_MODEL=gpt-4o-mini
+ * - (옵션) STT_MODEL=gpt-4o-mini-transcribe   (또는 gpt-4o-transcribe / whisper-1)
  */
 
 require("dotenv").config();
@@ -13,12 +18,13 @@ const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 const OpenAI = require("openai");
+const { toFile } = require("openai"); // ✅ 중요: filename(확장자) 보존
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // =========================
-// CORS
+// CORS / JSON
 // =========================
 app.use(
   cors({
@@ -27,17 +33,13 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-
-// JSON (answer용)
 app.use(express.json({ limit: "2mb" }));
 
 // =========================
-// OpenAI
+// OpenAI Client
 // =========================
 const apiKey = process.env.OPENAI_API_KEY;
-if (!apiKey) {
-  console.warn("[WARN] OPENAI_API_KEY is missing");
-}
+if (!apiKey) console.warn("[WARN] OPENAI_API_KEY is missing");
 const openai = new OpenAI({ apiKey });
 
 // =========================
@@ -46,7 +48,7 @@ const openai = new OpenAI({ apiKey });
 const upload = multer({
   dest: path.join(__dirname, "tmp"),
   limits: {
-    fileSize: 25 * 1024 * 1024, // 25MB (필요시 조정)
+    fileSize: 25 * 1024 * 1024, // 25MB
   },
 });
 
@@ -58,72 +60,112 @@ app.get("/", (req, res) => {
 });
 
 // =====================================================
-// (기존) /api/answer
-// - 리얼쵸키님 기존 구현이 있으면 그대로 유지하세요.
+// /api/answer
+// - 프론트(qa.js)가 호출하는 답변 API
+// - MVP: 질문 + (영상 메타) 를 받아서 LLM 답변 반환
 // =====================================================
 app.post("/api/answer", async (req, res) => {
   try {
-    const { question, videoKey, videoUrl, provider, youtubeId, t, tLabel } = req.body || {};
-    if (!question || !String(question).trim()) {
-      return res.status(400).json({ error: "question is required" });
+    const {
+      question,
+      videoKey = "default",
+      videoUrl = "",
+      provider = "native",
+      youtubeId = "",
+      t = 0,
+      tLabel = "00:00",
+    } = req.body || {};
+
+    const q = String(question || "").trim();
+    if (!q) return res.status(400).json({ error: "question is required" });
+
+    const model = process.env.ANSWER_MODEL || "gpt-4o-mini";
+
+    // ✅ 강의/시간 맥락을 함께 전달(서버에 RAG 붙일 때 여기에 컨텍스트 삽입)
+    const system = [
+      "당신은 강의 시청 중 학습자의 질문에 답하는 AI 튜터입니다.",
+      "답변은 한국어로, 핵심부터 명확하게 설명하고 필요하면 예시를 포함하세요.",
+      "근거가 부족하면 가정/추정을 명시하세요.",
+    ].join("\n");
+
+    const user = [
+      `질문: ${q}`,
+      "",
+      `[컨텍스트]`,
+      `- videoKey: ${videoKey}`,
+      `- provider: ${provider}`,
+      `- youtubeId: ${youtubeId}`,
+      `- videoUrl: ${videoUrl}`,
+      `- time: ${tLabel} (${Number(t || 0).toFixed(1)}s)`,
+    ].join("\n");
+
+    // Responses API 사용(최신 SDK)
+    const r = await openai.responses.create({
+      model,
+      input: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    });
+
+    // SDK 버전/응답형태 차이를 흡수
+    const answer =
+      (typeof r.output_text === "string" && r.output_text) ||
+      (r.output && Array.isArray(r.output)
+        ? r.output
+            .flatMap((o) => o.content || [])
+            .map((c) => c.text || "")
+            .join("")
+        : "") ||
+      "";
+
+    if (!answer.trim()) {
+      return res.status(500).json({ error: "LLM returned empty answer" });
     }
 
-    // ✅ 기존 로직이 있다면 그걸로 교체하세요.
-    // 여기서는 데모 응답
-    return res.json({
-      answer:
-        `질문을 받았습니다.\n` +
-        `- question: ${question}\n` +
-        `- tLabel: ${tLabel ?? ""}\n` +
-        `- provider: ${provider ?? ""}\n` +
-        `(여기 /api/answer는 기존 코드로 유지하세요)`,
-    });
+    return res.json({ answer });
   } catch (err) {
-    return res.status(500).json({ error: err?.message || "server error" });
+    console.error("[/api/answer] error:", err);
+    return res.status(500).json({ error: err?.message || "answer failed" });
   }
 });
 
 // =====================================================
-// ✅ NEW: /api/stt
-// - multipart/form-data 로 audio 파일 업로드
+// /api/stt
+// - multipart/form-data 로 audio 업로드
 // - OpenAI Audio Transcriptions 호출
+// - ❗ 400 Unsupported file format 해결:
+//   multer tmp 파일(확장자 없음)을 그대로 올리지 않고,
+//   toFile(stream, originalname)로 filename(확장자) 강제
 // =====================================================
 app.post("/api/stt", upload.single("audio"), async (req, res) => {
   const file = req.file;
 
   try {
-    if (!file) {
-      return res.status(400).json({ error: "audio file is required" });
-    }
+    if (!file) return res.status(400).json({ error: "audio file is required" });
 
-    // ✅ 모델 선택 (품질 우선)
-    // - whisper-1 (구형)
-    // - gpt-4o-mini-transcribe (고품질/가성비) :contentReference[oaicite:1]{index=1}
-    // - gpt-4o-transcribe (더 고품질) :contentReference[oaicite:2]{index=2}
     const model = process.env.STT_MODEL || "gpt-4o-mini-transcribe";
 
+    // ✅ 원본 파일명(예: speech.webm / speech.ogg)을 filename으로 강제
+    const filename = file.originalname || "speech.webm";
+
+    const audioFile = await toFile(fs.createReadStream(file.path), filename);
+
     const transcription = await openai.audio.transcriptions.create({
-      file: fs.createReadStream(file.path),
+      file: audioFile,
       model,
-      // language: "ko", // 한국어 고정하고 싶으면 사용(환경에 따라 도움)
-      // response_format: "json",
+      // language: "ko", // 고정하고 싶으면 주석 해제
     });
 
-    // SDK 반환 형태는 { text: "..." } 계열
-    const text = (transcription && transcription.text) ? String(transcription.text) : "";
-
-    if (!text.trim()) {
-      return res.status(200).json({ text: "" });
-    }
-
+    const text = transcription?.text ? String(transcription.text) : "";
     return res.json({ text });
   } catch (err) {
+    console.error("[/api/stt] error:", err);
+    // OpenAI에서 내려준 400/지원형식 메시지를 그대로 노출(디버깅에 유리)
     return res.status(500).json({ error: err?.message || "stt failed" });
   } finally {
-    // 업로드 임시파일 정리
-    if (file && file.path) {
-      fs.unlink(file.path, () => {});
-    }
+    // tmp 파일 삭제
+    if (file?.path) fs.unlink(file.path, () => {});
   }
 });
 
