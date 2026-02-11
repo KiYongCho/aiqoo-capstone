@@ -1,4 +1,6 @@
-/* 질문 예시 칩 */
+/* =========================
+   질문 예시 칩
+   ========================= */
 .qa-chip {
   border: 1px solid rgba(255, 255, 255, 0.10);
   background: rgba(255, 255, 255, 0.04);
@@ -20,7 +22,9 @@
   transform: none;
 }
 
-/* 강의 미재생 상태 안내 애니메이션 */
+/* =========================
+   강의 미재생 상태 안내 애니메이션
+   ========================= */
 .aiqa-hint-pulse {
   animation: aiqaHintPulse 1.4s ease-in-out infinite;
 }
@@ -28,4 +32,106 @@
   0%   { opacity: .55; text-shadow: 0 0 0 rgba(99,102,241,0); }
   50%  { opacity: 1;   text-shadow: 0 0 14px rgba(99,102,241,.35); }
   100% { opacity: .55; text-shadow: 0 0 0 rgba(99,102,241,0); }
+}
+
+/* =========================
+   ✅ Q&A 재생중 오버레이(모달)
+   - fixed ❌  → absolute ✅ : iframe 영역 내부만 덮음
+   ========================= */
+.qa-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.qa-overlay-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.62);
+  backdrop-filter: blur(6px);
+}
+
+.qa-overlay-card {
+  position: relative;
+  width: min(340px, calc(100% - 32px));
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background:
+    radial-gradient(120% 120% at 50% 0%,
+      rgba(99,102,241,0.34) 0%,
+      rgba(255,255,255,0.06) 36%,
+      rgba(0,0,0,0.42) 100%);
+  box-shadow:
+    0 28px 80px rgba(0,0,0,0.65),
+    0 0 0 1px rgba(255,255,255,0.04) inset;
+  padding: 18px 18px 16px;
+  text-align: center;
+  transform-origin: center;
+  animation: qaOverlayIn 180ms ease-out;
+  cursor: pointer;
+  user-select: none;
+}
+
+@keyframes qaOverlayIn {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.qa-overlay-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255,255,255,0.18);
+}
+
+.qa-overlay-card:active {
+  transform: translateY(0px) scale(0.99);
+}
+
+.qa-overlay-card:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.qa-overlay-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: rgba(255,255,255,0.92);
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  box-shadow: 0 0 18px rgba(239,68,68,0.12);
+}
+
+.qa-overlay-title {
+  margin-top: 10px;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: rgba(244,244,245,0.96);
+  text-shadow: 0 0 18px rgba(99,102,241,0.30);
+}
+
+.qa-overlay-desc {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgba(161,161,170,0.95);
+}
+
+.qa-overlay-cta {
+  margin-top: 14px;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 800;
+  color: rgba(255,255,255,0.95);
+  background: rgba(99,102,241,0.28);
+  border: 1px solid rgba(99,102,241,0.35);
+  box-shadow: 0 10px 24px rgba(99,102,241,0.15);
 }
