@@ -1,277 +1,64 @@
-// js/index.js
-(function () {
-  const videoUrlInput = document.getElementById("videoUrl");
-  const videoApplyBtn = document.getElementById("videoApply");
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>강의 시청 · Q&A</title>
 
-  const nativeVideo = document.getElementById("nativeVideo");
-  const youtubeWrap = document.getElementById("youtubeWrap");
-  const ytPlayerEl = document.getElementById("ytPlayer");
-  const placeholder = document.getElementById("videoPlaceholder");
+  <!-- Tailwind CDN (유지) -->
+  <script src="https://cdn.tailwindcss.com"></script>
 
-  const qaFrame = document.querySelector('iframe[src="html/qa.html"]');
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="css/index.css" />
+</head>
+<body class="h-screen overflow-hidden bg-zinc-900 text-zinc-200">
+  <div class="flex h-full flex-col md:flex-row">
+    <!-- 비디오 영역 -->
+    <section class="flex min-w-0 flex-1 flex-col overflow-hidden bg-zinc-800">
+      <header class="flex shrink-0 items-center gap-2 border-b border-zinc-700 px-4 py-2">
+        <span class="text-sm font-semibold whitespace-nowrap">강의 영상</span>
+        <input
+          type="text"
+          id="videoUrl"
+          value="https://www.youtube.com/watch?v=vLwz-fYnnFo"
+          placeholder="YouTube URL 또는 동영상 URL 입력"
+          class="min-w-0 flex-1 rounded border border-zinc-600 bg-zinc-700/50 px-3 py-1.5 text-sm text-zinc-100 placeholder-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
+        <button
+          type="button"
+          id="videoApply"
+          class="shrink-0 rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+        >적용</button>
+      </header>
 
-  function postToQA(msg) {
-    if (!qaFrame || !qaFrame.contentWindow) return;
-    qaFrame.contentWindow.postMessage(msg, "*");
-  }
+      <div class="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden p-2">
+        <video id="nativeVideo" class="max-h-full max-w-full rounded-lg bg-black object-contain hidden" controls playsinline></video>
 
-  // =========================
-  // 상태
-  // =========================
-  let provider = "native"; // "youtube" | "native"
-  let youtubeId = "";
-  let videoUrl = "";
-  let videoKey = "default";
+        <div id="youtubeWrap" class="hidden h-full w-full max-h-full max-w-full flex items-center justify-center">
+          <div class="relative w-full max-h-full aspect-video shrink-0">
+            <div id="ytPlayer" class="absolute inset-0 h-full w-full rounded-lg overflow-hidden"></div>
+          </div>
+        </div>
 
-  let ytPlayer = null;
-  window.ytPlayer = null;
+        <p id="videoPlaceholder" class="text-sm text-zinc-500">
+          위 입력창에 YouTube 주소 또는 동영상 URL을 넣고 [적용]을 누르세요.
+        </p>
+      </div>
+    </section>
 
-  // ✅ YouTube API ready 전 apply 대비
-  let pendingYoutubeId = "";
-  let ytReady = false;
+    <!-- Q&A 패널 -->
+    <section class="flex h-[40%] w-full flex-col border-t border-zinc-700 bg-zinc-800 md:h-auto md:w-[380px] md:min-w-[380px] md:border-l md:border-t-0">
+      <header class="shrink-0 border-b border-zinc-700 px-4 py-3 text-sm font-semibold">AI Q&A</header>
+      <div class="min-h-0 flex-1">
+        <iframe class="h-full w-full border-0 block" src="html/qa.html" title="AI Q&A"></iframe>
+      </div>
+    </section>
+  </div>
 
-  // =========================
-  // util
-  // =========================
-  function isYouTubeUrl(url) {
-    return /youtube\.com|youtu\.be/.test(url);
-  }
+  <!-- YouTube IFrame Player API -->
+  <script src="https://www.youtube.com/iframe_api"></script>
 
-  function parseYouTubeId(url) {
-    try {
-      const u = new URL(url);
-      if (u.hostname.includes("youtu.be")) {
-        return u.pathname.replace("/", "").trim();
-      }
-      if (u.hostname.includes("youtube.com")) {
-        return u.searchParams.get("v") || "";
-      }
-      return "";
-    } catch {
-      return "";
-    }
-  }
-
-  function makeVideoKey(p, url, yid) {
-    if (p === "youtube" && yid) return `yt:${yid}`;
-    if (url) return `url:${encodeURIComponent(url)}`;
-    return "default";
-  }
-
-  function formatTimeLabel(seconds) {
-    const s = Math.max(0, Math.floor(Number(seconds || 0)));
-    const mm = String(Math.floor(s / 60)).padStart(2, "0");
-    const ss = String(s % 60).padStart(2, "0");
-    return `${mm}:${ss}`;
-  }
-
-  function showPlaceholder(show) {
-    placeholder.classList.toggle("hidden", !show);
-  }
-  function showNative(show) {
-    nativeVideo.classList.toggle("hidden", !show);
-  }
-  function showYouTube(show) {
-    youtubeWrap.classList.toggle("hidden", !show);
-  }
-
-  function sendVideoInfo() {
-    postToQA({
-      type: "videoInfo",
-      videoKey,
-      videoUrl,
-      provider,
-      youtubeId
-    });
-  }
-  function sendPlaying() {
-    postToQA({ type: "videoPlaying" });
-  }
-  function sendPaused() {
-    postToQA({ type: "videoPaused" });
-  }
-  function sendTimeInfo() {
-    const t = getCurrentTime();
-    postToQA({
-      type: "timeInfo",
-      t,
-      tLabel: formatTimeLabel(t),
-      provider,
-      youtubeId
-    });
-  }
-
-  function getCurrentTime() {
-    if (provider === "youtube" && ytPlayer && typeof ytPlayer.getCurrentTime === "function") {
-      return Number(ytPlayer.getCurrentTime() || 0);
-    }
-    if (provider === "native" && nativeVideo) {
-      return Number(nativeVideo.currentTime || 0);
-    }
-    return 0;
-  }
-
-  function pauseVideo() {
-    if (provider === "youtube" && ytPlayer && typeof ytPlayer.pauseVideo === "function") {
-      ytPlayer.pauseVideo();
-      return;
-    }
-    if (provider === "native" && nativeVideo && !nativeVideo.paused) {
-      nativeVideo.pause();
-    }
-  }
-
-  // =========================
-  // Native events
-  // =========================
-  nativeVideo.addEventListener("play", () => {
-    provider = "native";
-    sendPlaying();
-  });
-
-  nativeVideo.addEventListener("pause", () => {
-    provider = "native";
-    sendPaused();
-  });
-
-  // =========================
-  // YouTube API ready
-  // =========================
-  window.onYouTubeIframeAPIReady = function () {
-    ytPlayer = new YT.Player(ytPlayerEl, {
-      videoId: "",
-      playerVars: {
-        rel: 0,
-        modestbranding: 1
-      },
-      events: {
-        onReady: () => {
-          ytReady = true;
-          // ✅ ready 전에 눌렀던 apply 처리
-          if (pendingYoutubeId) {
-            ytPlayer.loadVideoById(pendingYoutubeId);
-            pendingYoutubeId = "";
-          }
-        },
-        onStateChange: (event) => {
-          const s = event.data;
-          if (s === YT.PlayerState.PLAYING) {
-            provider = "youtube";
-            sendPlaying();
-          } else if (s === YT.PlayerState.PAUSED) {
-            provider = "youtube";
-            sendPaused();
-          } else if (s === YT.PlayerState.ENDED) {
-            provider = "youtube";
-            // 끝나도 질문 가능이어야 하므로 paused로 처리
-            sendPaused();
-          }
-        }
-      }
-    });
-
-    window.ytPlayer = ytPlayer;
-  };
-
-  // =========================
-  // apply video
-  // =========================
-  function applyVideo(url) {
-    videoUrl = (url || "").trim();
-
-    if (!videoUrl) {
-      showPlaceholder(true);
-      showNative(false);
-      showYouTube(false);
-      return;
-    }
-
-    // ✅ 기존 영상 정리
-    try {
-      if (!nativeVideo.classList.contains("hidden")) {
-        nativeVideo.pause();
-      }
-    } catch (_) {}
-
-    if (isYouTubeUrl(videoUrl)) {
-      provider = "youtube";
-      youtubeId = parseYouTubeId(videoUrl);
-      videoKey = makeVideoKey(provider, videoUrl, youtubeId);
-
-      showPlaceholder(false);
-      showNative(false);
-      showYouTube(true);
-
-      sendVideoInfo();
-
-      // ✅ ytReady 이전이면 pending으로 저장
-      if (youtubeId) {
-        if (ytPlayer && ytReady) {
-          ytPlayer.loadVideoById(youtubeId);
-        } else {
-          pendingYoutubeId = youtubeId;
-        }
-      }
-    } else {
-      provider = "native";
-      youtubeId = "";
-      videoKey = makeVideoKey(provider, videoUrl, "");
-
-      showPlaceholder(false);
-      showYouTube(false);
-      showNative(true);
-
-      nativeVideo.src = videoUrl;
-      nativeVideo.load();
-
-      sendVideoInfo();
-    }
-  }
-
-  videoApplyBtn.addEventListener("click", () => {
-    applyVideo(videoUrlInput.value || "");
-  });
-
-  // ✅ 엔터로도 적용
-  videoUrlInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      applyVideo(videoUrlInput.value || "");
-    }
-  });
-
-  // =========================
-  // QA iframe -> 부모 메시지 처리
-  // =========================
-  window.addEventListener("message", (e) => {
-    if (!e.data) return;
-
-    if (e.data.type === "qaFocus") {
-      pauseVideo();
-      return;
-    }
-
-    if (e.data.type === "requestTime") {
-      sendTimeInfo();
-      return;
-    }
-
-    if (e.data.type === "qaReady") {
-      sendVideoInfo();
-      return;
-    }
-  });
-
-  // =========================
-  // 초기 상태: 기본 URL 자동 적용 ✅
-  // =========================
-  showPlaceholder(true);
-  showNative(false);
-  showYouTube(false);
-
-  // 입력창에 기본값이 있으면 바로 띄우기
-  const initialUrl = (videoUrlInput.value || "").trim();
-  if (initialUrl) {
-    applyVideo(initialUrl);
-  }
-})();
+  <!-- App JS -->
+  <script src="js/index.js"></script>
+</body>
+</html>
