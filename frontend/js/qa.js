@@ -18,6 +18,11 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   const chipsWrap = document.getElementById('exampleChips');
   const chipButtons = chipsWrap ? Array.from(chipsWrap.querySelectorAll('button[data-example]')) : [];
 
+  // ✅ 오버레이 요소
+  const playOverlay = document.getElementById('playOverlay');
+  const overlayBtn = document.getElementById('overlayBtn');
+  const overlaySub = document.getElementById('overlaySub');
+
   function safeParseUrl(u) { try { return new URL(u); } catch { return null; } }
   const ref = safeParseUrl(document.referrer);
   const parentOriginFromReferrer = ref ? ref.origin : '';
@@ -37,6 +42,8 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   let youtubeId = '';
 
   let speechSupported = false;
+  let isPlaying = false;            // ✅ 부모로부터 videoPlaying/Paused로 갱신
+  let overlayPauseRequested = false; // ✅ 오버레이 클릭 후 대기 플래그
 
   function storageKey() {
     return 'lecture-qa:' + (videoKey || 'default');
@@ -69,6 +76,30 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   }
 
   // =========================
+  // 오버레이 제어
+  // =========================
+  function showOverlay() {
+    if (!playOverlay) return;
+    playOverlay.classList.remove('hidden');
+    playOverlay.setAttribute('aria-hidden', 'false');
+  }
+
+  function hideOverlay() {
+    if (!playOverlay) return;
+    playOverlay.classList.add('hidden');
+    playOverlay.setAttribute('aria-hidden', 'true');
+  }
+
+  function setOverlayPending(pending) {
+    overlayPauseRequested = pending;
+    if (!overlayBtn || !overlaySub) return;
+    overlayBtn.disabled = pending;
+    overlaySub.textContent = pending
+      ? '멈추는 중… 잠시만 기다려 주세요'
+      : '눌러서 질문하기 (영상이 멈추고 입력이 활성화됩니다)';
+  }
+
+  // =========================
   // UX 동기화
   // =========================
   function isQuestionEnabled() {
@@ -81,10 +112,12 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     if (resetWrap) resetWrap.classList.toggle('hidden', !enabled);
 
     if (hintLabel) {
-      hintLabel.classList.toggle('aiqa-hint-pulse', !enabled);
+      // 영상이 재생 중이면 오버레이가 뜨므로 힌트는 기본적으로 덜 강조
+      const pulse = !enabled;
+      hintLabel.classList.toggle('aiqa-hint-pulse', pulse);
       hintLabel.textContent = enabled
         ? '질문을 입력하고 전송해 주세요.'
-        : 'AIQA에게질문하세요! (영상이 멈추면 질문 가능)';
+        : (isPlaying ? '재생 중에는 오버레이를 눌러 질문을 시작하세요.' : '영상이 멈추면 질문할 수 있습니다.');
     }
 
     chipButtons.forEach(btn => { btn.disabled = !enabled; });
@@ -162,6 +195,23 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
 
   function notifyParentPause() {
     try { window.parent.postMessage({ type: 'qaFocus' }, getPostTargetOrigin()); } catch (_) {}
+  }
+
+  // ✅ 오버레이 클릭 -> pause 요청 -> paused 오면 자동 활성화
+  if (overlayBtn) {
+    overlayBtn.addEventListener('click', () => {
+      if (!isPlaying) {
+        // 이미 멈춘 상태면 그냥 활성화
+        hideOverlay();
+        setOverlayPending(false);
+        setQuestionUIEnabled(true);
+        questionInput.focus();
+        return;
+      }
+      setOverlayPending(true);
+      notifyParentPause();
+      // paused 신호가 오기 전까지는 오버레이 유지
+    });
   }
 
   async function requestTimeFromParent() {
@@ -265,19 +315,28 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     }
   }
 
-  // =========================
   // 부모 메시지 처리
-  // =========================
   window.addEventListener('message', function (e) {
     if (!e.data) return;
 
     if (e.data.type === 'videoPlaying') {
+      isPlaying = true;
+
+      // ✅ 재생 중엔 오버레이 표시 + 질문 비활성화
+      showOverlay();
+      setOverlayPending(false);
       setQuestionUIEnabled(false);
+      return;
     }
 
-    // ✅ “멈추면 무조건 질문 가능” (요구사항)
     if (e.data.type === 'videoPaused') {
+      isPlaying = false;
+
+      // ✅ 멈추면 오버레이 숨김 + 질문 활성화
+      hideOverlay();
+      setOverlayPending(false);
       setQuestionUIEnabled(true);
+      return;
     }
 
     if (e.data.type === 'videoInfo' && e.data.videoKey) {
@@ -293,11 +352,9 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     try { window.parent.postMessage({ type: 'qaReady' }, getPostTargetOrigin()); } catch (_) {}
   }
 
-  // =========================
-  // UI 이벤트
-  // =========================
+  // UI 이벤트(질문 버튼은 “정지 상태”에서만 유효하지만 안전하게 pause 요청 유지)
   submitBtn.addEventListener('click', function () {
-    // ✅ 질문 버튼 누르면 강의 멈춤 요청
+    // 재생 중이면 오버레이로 유도되는 구조지만, 혹시를 대비해 pause 요청
     notifyParentPause();
 
     const v = (questionInput.value || '').trim();
@@ -321,9 +378,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     notifyParentPause();
   });
 
-  // =========================
   // 음성 인식
-  // =========================
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition = null;
 
@@ -386,9 +441,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     voiceStatus.textContent = '이 브라우저는 음성 인식을 지원하지 않습니다. (Chrome 권장)';
   }
 
-  // =========================
   // Reset modal
-  // =========================
   const resetModal = document.getElementById('resetModal');
   const resetModalCancel = document.getElementById('resetModalCancel');
   const resetModalConfirm = document.getElementById('resetModalConfirm');
@@ -416,7 +469,9 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     if (e.target === resetModal) closeResetModal();
   });
 
+  // init
   render();
-  // ✅ 초기에는 비활성. 부모가 paused를 보내면 활성화됩니다.
+  hideOverlay();
+  setOverlayPending(false);
   setQuestionUIEnabled(false);
 })();
