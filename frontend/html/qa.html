@@ -87,6 +87,25 @@
     </div>
   </div>
 
+  <!-- ✅ 답변 크게보기 모달 (NEW) -->
+  <div id="answerModal" class="qa-answer-modal hidden" aria-hidden="true">
+    <div class="qa-answer-dim" data-close="1"></div>
+
+    <div class="qa-answer-card" role="dialog" aria-modal="true" aria-labelledby="answerModalTitle">
+      <div class="qa-answer-header">
+        <div class="qa-answer-title" id="answerModalTitle">답변 크게보기</div>
+        <div class="qa-answer-actions">
+          <button type="button" id="answerCopyBtn" class="qa-answer-iconbtn" title="복사" aria-label="답변 복사">📋</button>
+          <button type="button" id="answerCloseBtn" class="qa-answer-iconbtn" title="닫기" aria-label="닫기">✕</button>
+        </div>
+      </div>
+
+      <div class="qa-answer-meta" id="answerModalMeta"></div>
+
+      <div class="qa-answer-body" id="answerModalBody"></div>
+    </div>
+  </div>
+
   <!-- 초기화 확인 모달 -->
   <div class="fixed inset-0 z-[1000] hidden items-center justify-center bg-black/60 p-4" id="resetModal" aria-hidden="true">
     <div class="w-full max-w-[320px] rounded-xl border border-white/10 bg-zinc-800 p-5 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="resetModalTitle">
@@ -98,6 +117,7 @@
       </div>
     </div>
   </div>
+
   <button type="button" id="toTopBtn" class="qa-top hidden" aria-label="맨 위로" title="맨 위로">
     ⬆ TOP
   </button>

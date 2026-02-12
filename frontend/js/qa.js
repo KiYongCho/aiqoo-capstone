@@ -27,6 +27,18 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   const overlayBtn = document.getElementById('overlayBtn');
   const overlaySub = document.getElementById('overlaySub');
 
+  // ✅ 답변 크게보기 모달 요소 (NEW)
+  const answerModal = document.getElementById('answerModal');
+  const answerCloseBtn = document.getElementById('answerCloseBtn');
+  const answerCopyBtn = document.getElementById('answerCopyBtn');
+  const answerModalBody = document.getElementById('answerModalBody');
+  const answerModalMeta = document.getElementById('answerModalMeta');
+
+  let lastFocusedEl = null;
+  let modalAnswerText = "";
+  let modalQuestionText = "";
+  let modalTitleLine = "";
+
   function safeParseUrl(u) { try { return new URL(u); } catch { return null; } }
   const ref = safeParseUrl(document.referrer);
   const parentOriginFromReferrer = ref ? ref.origin : '';
@@ -84,6 +96,82 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     const div = document.createElement('div');
     div.textContent = s;
     return div.innerHTML;
+  }
+
+  // =========================
+  // ✅ 답변 크게보기 모달 제어 (NEW)
+  // =========================
+  function openAnswerModal({ titleLine, metaLine, question, answer }) {
+    if (!answerModal || !answerModalBody) return;
+
+    lastFocusedEl = document.activeElement;
+
+    modalTitleLine = titleLine || '답변 크게보기';
+    modalQuestionText = question || '';
+    modalAnswerText = answer || '';
+
+    // body는 "pre-wrap"로 그대로 보여주기
+    answerModalBody.textContent = modalAnswerText;
+
+    // meta (상단에 Q + 시간 + provider 등 짧게)
+    if (answerModalMeta) {
+      const parts = [];
+      if (metaLine) parts.push(metaLine);
+      if (modalQuestionText) parts.push('Q: ' + modalQuestionText);
+      answerModalMeta.textContent = parts.join(' · ');
+    }
+
+    answerModal.classList.remove('hidden');
+    answerModal.setAttribute('aria-hidden', 'false');
+
+    // 스크롤 초기화
+    try { answerModalBody.scrollTop = 0; } catch (_) {}
+
+    // 포커스 이동
+    try { (answerCloseBtn || answerModal).focus(); } catch (_) {}
+  }
+
+  function closeAnswerModal() {
+    if (!answerModal) return;
+    answerModal.classList.add('hidden');
+    answerModal.setAttribute('aria-hidden', 'true');
+
+    // 포커스 복귀
+    try { lastFocusedEl && lastFocusedEl.focus && lastFocusedEl.focus(); } catch (_) {}
+    lastFocusedEl = null;
+  }
+
+  function isAnswerModalOpen() {
+    return answerModal && !answerModal.classList.contains('hidden');
+  }
+
+  async function copyModalAnswer() {
+    const text = (modalAnswerText || '').trim();
+    if (!text) return;
+
+    // clipboard 우선
+    try {
+      await navigator.clipboard.writeText(text);
+      if (answerCopyBtn) {
+        const old = answerCopyBtn.textContent;
+        answerCopyBtn.textContent = '✅';
+        setTimeout(() => { answerCopyBtn.textContent = old; }, 900);
+      }
+      return;
+    } catch (_) {}
+
+    // fallback
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (_) {}
   }
 
   // =========================
@@ -160,18 +248,34 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
 
       let answerHtml = '';
       if (item.answer) {
+        // ✅ “답변크게보기” 버튼을 답변 블록 하단에 추가
         answerHtml =
           '<div class="border-t border-white/[0.05] bg-black/20 px-3.5 py-3">' +
             '<div class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">답변 (LLM)</div>' +
             '<div class="max-h-[240px] overflow-y-auto overflow-x-hidden pr-1.5 text-[13px] leading-relaxed text-zinc-300 whitespace-pre-wrap">' +
               escapeHtml(item.answer) +
             '</div>' +
+            '<div class="mt-3 flex justify-end">' +
+              '<button type="button" class="qa-answer-zoombtn" ' +
+                'data-action="answerZoom" ' +
+                'data-idx="' + String(originalIndex) + '">' +
+                '답변크게보기' +
+              '</button>' +
+            '</div>' +
           '</div>';
       } else if (item.error) {
+        // 에러도 크게보기는 가능하게(원하시면 제거 가능)
         answerHtml =
           '<div class="border-t border-white/[0.05] bg-black/20 px-3.5 py-3">' +
             '<div class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">답변</div>' +
-            '<div class="text-[13px] leading-normal text-red-400">' + escapeHtml(item.error) + '</div>' +
+            '<div class="text-[13px] leading-normal text-red-400 whitespace-pre-wrap">' + escapeHtml(item.error) + '</div>' +
+            '<div class="mt-3 flex justify-end">' +
+              '<button type="button" class="qa-answer-zoombtn" ' +
+                'data-action="answerZoomError" ' +
+                'data-idx="' + String(originalIndex) + '">' +
+                '답변크게보기' +
+              '</button>' +
+            '</div>' +
           '</div>';
       } else {
         answerHtml =
@@ -192,25 +296,25 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
       qaList.appendChild(div);
     });
 
-  // =========================================
-  // ✅ TOP 버튼 로직 (스크롤 대상: qaList)
-  // =========================================
-  function syncTopButton() {
-    if (!toTopBtn || !qaList) return;
-    const y = qaList.scrollTop || 0;
-    toTopBtn.classList.toggle('hidden', y < 240);
-  }
+    // =========================================
+    // ✅ TOP 버튼 로직 (스크롤 대상: qaList)
+    // =========================================
+    function syncTopButton() {
+      if (!toTopBtn || !qaList) return;
+      const y = qaList.scrollTop || 0;
+      toTopBtn.classList.toggle('hidden', y < 240);
+    }
 
-  if (qaList) {
-    qaList.addEventListener('scroll', syncTopButton, { passive: true });
-  }
+    if (qaList) {
+      qaList.addEventListener('scroll', syncTopButton, { passive: true });
+    }
 
-  if (toTopBtn) {
-    toTopBtn.addEventListener('click', () => {
-      if (!qaList) return;
-      qaList.scrollTo({ top: 0, behavior: 'smooth' });
-    });
-  }
+    if (toTopBtn) {
+      toTopBtn.addEventListener('click', () => {
+        if (!qaList) return;
+        qaList.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    }
 
     syncQAUI();
   }
@@ -356,7 +460,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     const live = (realtimeFinal + (realtimeInterim ? (' ' + realtimeInterim) : '')).trim();
     const base = (realtimeBaseText || '').trim();
 
-    // base가 있으면 base + \n + live 형태
     const composed = base ? (base + '\n' + live).trim() : live;
 
     if (composed) {
@@ -371,7 +474,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   function startRealtimeSpeech() {
     if (!realtimeRec) return false;
 
-    // WebSpeech는 품질은 낮지만 “실시간”이 핵심
     realtimeRec.lang = 'ko-KR';
     realtimeRec.interimResults = true;
     realtimeRec.continuous = true;
@@ -399,7 +501,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     };
 
     realtimeRec.onerror = (e) => {
-      // 실시간 표시가 실패해도 Whisper 최종은 가능하므로 "치명적"으로 보지 않음
       voiceStatus.textContent =
         e.error === 'not-allowed' ? '마이크 권한이 필요합니다.' :
         e.error === 'no-speech' ? '음성이 감지되지 않았습니다.' :
@@ -410,7 +511,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
       isRealtimeListening = false;
       realtimeInterim = '';
       applyRealtimeTextToTextarea();
-      // onend는 stop 시점에 자연스럽게 발생
     };
 
     try {
@@ -472,9 +572,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   }
 
   function replaceLiveTextWithWhisper(whisperText) {
-    // 실시간으로 넣었던 live(웹스피치) 부분을 Whisper 결과로 “정제”하는 전략:
-    // - 음성 시작 전 base 텍스트는 유지
-    // - 음성 입력 부분은 Whisper 결과로 교체
     const base = (realtimeBaseText || '').trim();
     const w = (whisperText || '').trim();
     if (!w) return;
@@ -497,14 +594,11 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
       return;
     }
 
-    // 1) 실시간 표시(WebSpeech) 시작(가능하면)
     const realtimeOk = startRealtimeSpeech();
     if (!realtimeOk) {
-      // 실시간 표시 실패해도 Whisper 최종은 가능
       voiceStatus.textContent = '🎙 음성 입력 중... (실시간 표시는 브라우저 미지원)';
     }
 
-    // 2) Whisper용 녹음 시작
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
     const preferredTypes = [
@@ -526,10 +620,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     };
 
     mediaRecorder.onstop = async () => {
-      // 마이크 트랙 정리
       try { stream.getTracks().forEach(tr => tr.stop()); } catch (_) {}
-
-      // 실시간 인식 종료
       stopRealtimeSpeech();
 
       setVoiceUIButton(false);
@@ -539,7 +630,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
         return;
       }
 
-      // Whisper 전사
       voiceStatus.textContent = '🧠 Whisper 전사 중...';
       try {
         const blob = new Blob(chunks, { type: mediaRecorder?.mimeType || 'audio/webm' });
@@ -551,8 +641,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
         }
 
         whisperFinalText = text;
-
-        // ✅ 실시간(WebSpeech) 텍스트를 Whisper 결과로 “정제/교체”
         replaceLiveTextWithWhisper(whisperFinalText);
 
         voiceStatus.textContent = '✅ 전사 완료: 고품질 결과로 반영했습니다.';
@@ -566,13 +654,69 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   }
 
   function stopRecordingHybrid() {
-    // Whisper용 녹음 stop → onstop에서 whisper 전사 수행
     if (mediaRecorder) {
       try { mediaRecorder.stop(); } catch (_) {}
     }
-    // 실시간 인식도 stop
     stopRealtimeSpeech();
   }
+
+  // =========================
+  // ✅ “답변크게보기” 클릭 처리 (이벤트 위임) (NEW)
+  // =========================
+  if (qaList) {
+    qaList.addEventListener('click', (e) => {
+      const btn = e.target && e.target.closest ? e.target.closest('button[data-action]') : null;
+      if (!btn) return;
+
+      const action = btn.getAttribute('data-action');
+      if (action !== 'answerZoom' && action !== 'answerZoomError') return;
+
+      const idxStr = btn.getAttribute('data-idx');
+      const idx = Number(idxStr);
+      if (!Number.isFinite(idx)) return;
+
+      const items = loadQA();
+      const item = items[idx];
+      if (!item) return;
+
+      const titleLine = `Q${idx + 1} · 답변 크게보기`;
+      const metaLine = [
+        item.time ? String(item.time) : '',
+        item.provider ? String(item.provider) : '',
+        item.tLabel ? ('t=' + String(item.tLabel)) : ''
+      ].filter(Boolean).join(' · ');
+
+      const answerText = action === 'answerZoomError'
+        ? (item.error || '')
+        : (item.answer || '');
+
+      openAnswerModal({
+        titleLine,
+        metaLine,
+        question: item.question || '',
+        answer: answerText || ''
+      });
+    });
+  }
+
+  // 모달 닫기: X 버튼 / 딤 클릭 / ESC
+  if (answerCloseBtn) answerCloseBtn.addEventListener('click', closeAnswerModal);
+
+  if (answerModal) {
+    answerModal.addEventListener('click', (e) => {
+      const t = e.target;
+      if (t && t.getAttribute && t.getAttribute('data-close') === '1') closeAnswerModal();
+    });
+  }
+
+  if (answerCopyBtn) answerCopyBtn.addEventListener('click', copyModalAnswer);
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isAnswerModalOpen()) {
+      e.preventDefault();
+      closeAnswerModal();
+    }
+  });
 
   // =========================
   // 부모 메시지 처리
@@ -586,9 +730,9 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
       setOverlayPending(false);
       setQuestionUIEnabled(false);
 
-      // 재생 중엔 음성도 중단
       if (isRecording) stopRecordingHybrid();
-
+      // ✅ 재생 시작 시 답변 모달이 열려있으면 닫기
+      if (isAnswerModalOpen()) closeAnswerModal();
       return;
     }
 
@@ -642,7 +786,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     if (voiceBtn.disabled) return;
 
     if (isRecording) {
-      // 끝내기
       stopRecordingHybrid();
       return;
     }
@@ -694,9 +837,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   setOverlayPending(false);
   setQuestionUIEnabled(false);
 
-  // 초기 안내
   if (!SpeechRecognition) {
-    // 실시간 표시는 불가하지만 Whisper 최종은 가능(녹음/전사만 사용)
     voiceStatus.textContent = '실시간 자막(Web Speech)이 미지원입니다. (끝내기 후 Whisper로 전사됩니다)';
   } else {
     voiceStatus.textContent = '';

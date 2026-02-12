@@ -179,5 +179,151 @@
    .qa-top.hidden{
      display: none;
    }
+
+   /* ==============================
+   ✅ 답변크게보기 버튼 (NEW)
+   ============================== */
+.qa-answer-zoombtn {
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.04);
+  color: rgba(244,244,245,0.92);
+  border-radius: 9999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  transition: transform .15s ease, background .15s ease, border-color .15s ease, opacity .15s ease;
+}
+
+.qa-answer-zoombtn:hover {
+  background: rgba(99,102,241,0.18);
+  border-color: rgba(99,102,241,0.32);
+  transform: translateY(-1px);
+}
+
+.qa-answer-zoombtn:active {
+  transform: translateY(0px) scale(0.99);
+}
+
+/* ==============================
+   ✅ 답변 크게보기 모달 (NEW)
+   - iframe 내부 중앙 모달
+   ============================== */
+.qa-answer-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.qa-answer-modal.hidden {
+  display: none;
+}
+
+.qa-answer-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.70);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.qa-answer-card {
+  position: relative;
+  width: min(920px, calc(100% - 28px));
+  max-height: min(80vh, 720px);
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background:
+    radial-gradient(120% 140% at 50% 0%,
+      rgba(99,102,241,0.30) 0%,
+      rgba(255,255,255,0.06) 38%,
+      rgba(0,0,0,0.55) 100%);
+  box-shadow:
+    0 36px 110px rgba(0,0,0,0.75),
+    0 0 0 1px rgba(255,255,255,0.05) inset;
+  animation: qaAnswerModalIn 160ms ease-out;
+}
+
+@keyframes qaAnswerModalIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.qa-answer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+}
+
+.qa-answer-title {
+  font-size: 14px;
+  font-weight: 900;
+  color: rgba(244,244,245,0.95);
+  letter-spacing: .04em;
+}
+
+.qa-answer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.qa-answer-iconbtn {
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.04);
+  color: rgba(244,244,245,0.92);
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform .15s ease, background .15s ease, border-color .15s ease;
+}
+
+.qa-answer-iconbtn:hover {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.22);
+  transform: translateY(-1px);
+}
+
+.qa-answer-iconbtn:active {
+  transform: translateY(0px) scale(0.99);
+}
+
+.qa-answer-meta {
+  padding: 10px 14px 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(161,161,170,0.92);
+}
+
+.qa-answer-body {
+  padding: 12px 14px 16px;
+  overflow: auto;
+  max-height: calc(min(80vh, 720px) - 92px);
+  font-size: 14px;
+  line-height: 1.75;
+  color: rgba(228,228,231,0.92);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.qa-answer-body::-webkit-scrollbar {
+  width: 10px;
+}
+.qa-answer-body::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.14);
+  border-radius: 9999px;
+}
+.qa-answer-body::-webkit-scrollbar-track {
+  background: rgba(255,255,255,0.05);
+}
+
    
  
