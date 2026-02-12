@@ -72,7 +72,7 @@ app.use(
   })
 );
 
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "2mb" }));
 
 /* =========================
  * Multer (STT 업로드)
