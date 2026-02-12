@@ -15,7 +15,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
  * - 카카오 디벨로퍼스에서 앱 생성 후 JavaScript 키를 넣어주세요.
  * - 플랫폼(Web) 도메인에 배포 도메인을 등록해야 공유가 됩니다.
  */
-const KAKAO_JS_KEY = "PASTE_YOUR_KAKAO_JAVASCRIPT_KEY_HERE";
+const KAKAO_JS_KEY = "4632c8134c3d32664cbef8f20b497882";
 
 // 답변 일부(요약용) 길이
 const SHARE_SNIPPET_LEN = 180;
