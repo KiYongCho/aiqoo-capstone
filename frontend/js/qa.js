@@ -284,7 +284,8 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
         answerHtml =
           '<div class="border-t border-white/[0.05] bg-black/20 px-3.5 py-3">' +
             '<div class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">답변 (LLM)</div>' +
-            '<div class="max-h-[240px] overflow-y-auto overflow-x-hidden pr-1.5 text-[13px] leading-relaxed text-zinc-300 whitespace-pre-wrap">' +
+            // ✅ 변경: 답변 박스 내부 스크롤 제거 (qaList가 스크롤 담당)
+            '<div class="overflow-x-hidden text-[13px] leading-relaxed text-zinc-300 whitespace-pre-wrap">' +
               escapeHtml(item.answer) +
             '</div>' +
             '<div class="mt-3 flex justify-end">' +
@@ -576,7 +577,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
 
   // =========================
   // ✅ Hybrid: 최종 확정(/api/stt)
-  // - 서버에서 gpt-4o-transcribe 전사 + (옵션) gpt-5.x 정제
   // =========================
   let mediaRecorder = null;
   let chunks = [];
@@ -602,7 +602,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     return 'webm';
   }
 
-  // ✅ /api/stt 응답에서 (text, model, cleaned, clean_model)까지 받아오기
   async function sttTranscribe(blob) {
     const fd = new FormData();
     const ext = inferExtFromMime(blob.type);
@@ -674,12 +673,9 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     };
 
     mediaRecorder.onstop = async () => {
-      // 마이크 트랙 정리
       try { stream.getTracks().forEach(tr => tr.stop()); } catch (_) {}
 
-      // 실시간 인식 종료
       stopRealtimeSpeech();
-
       setVoiceUIButton(false);
 
       if (!chunks.length) {
@@ -687,7 +683,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
         return;
       }
 
-      // ✅ 상태 문구
       voiceStatus.textContent = '🧠 고품질 전사 중...';
 
       try {
@@ -700,11 +695,8 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
         }
 
         sttFinalText = result.text;
-
-        // ✅ 실시간(WebSpeech) 텍스트를 STT 결과로 “정제/교체”
         replaceLiveTextWithSTT(sttFinalText);
 
-        // ✅ 실제 사용 모델 표시
         const modelLabel = result.model ? `(${result.model})` : '';
         const cleanLabel = (result.cleaned && result.cleanModel) ? ` + clean:${result.cleanModel}` : '';
         voiceStatus.textContent = `✅ 전사 완료 ${modelLabel}${cleanLabel}`;
@@ -736,12 +728,8 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
       setOverlayPending(false);
       setQuestionUIEnabled(false);
 
-      // 재생 중엔 음성도 중단
       if (isRecording) stopRecordingHybrid();
-
-      // 재생 시작 시 답변 모달 열려있으면 닫기
       if (isAnswerModalOpen()) closeAnswerModal();
-
       return;
     }
 
