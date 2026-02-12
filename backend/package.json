@@ -1,22 +1,21 @@
 {
-  "name": "aiqoo",
+  "name": "aiqoo-backend",
   "version": "1.0.0",
-  "description": "aiqoo :: AI Q&A with LLM",
+  "description": "AIQOO Render backend (Express + OpenAI Responses + STT)",
   "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
   },
-  "dependencies": {
-    "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
-    "express": "^4.18.2",
-    "openai": "^4.20.0"
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "multer": "^1.4.5-lts.1",
-    "openai": "^4.0.0"
+    "openai": "^4.82.0"
   }
 }
