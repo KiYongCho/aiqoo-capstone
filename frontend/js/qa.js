@@ -1,7 +1,7 @@
 // qa.js (오버레이: 재생 중 중앙 모달 + 클릭하면 pause 요청 + paused 오면 활성화)
 // + Hybrid STT:
-//   - 실시간 표시: Web Speech API (interim -> textarea)
-//   - 최종 확정: /api/stt (서버에서 gpt-4o-transcribe 전사 + (옵션) gpt-5.x 정제)
+//   - 실시간 표시(보조): Web Speech API (interim -> textarea)  ✅ 자동 재시작 + 충돌 시 자동 폴백
+//   - 최종 확정(핵심): /api/stt (서버에서 gpt-4o-transcribe 전사 + (옵션) gpt-5.x 정제)
 const API_BASE = "https://aiqa-capstone.onrender.com";
 
 (function () {
@@ -27,7 +27,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   const overlayBtn = document.getElementById('overlayBtn');
   const overlaySub = document.getElementById('overlaySub');
 
-  // ✅ 답변 크게보기 모달 요소
+  // ✅ 답변 크게보기 모달 요소 (qa.html에 존재하면 동작)
   const answerModal = document.getElementById('answerModal');
   const answerCloseBtn = document.getElementById('answerCloseBtn');
   const answerCopyBtn = document.getElementById('answerCopyBtn');
@@ -65,6 +65,15 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   let realtimeFinal = "";             // WebSpeech final 누적
   let realtimeInterim = "";           // WebSpeech interim
   let sttFinalText = "";              // /api/stt 최종 결과(정제 포함 가능)
+
+  // ✅ 실시간 전사 안정화 (자동 재시작 + 폴백)
+  let realtimeWanted = false;         // 사용자가 “실시간 전사”를 원하는 상태인지
+  let realtimeRestartTimer = null;
+
+  // 이벤트 중복 바인딩 방지
+  let boundScroll = false;
+  let boundTopBtn = false;
+  let boundQaListDelegate = false;
 
   function storageKey() {
     return 'lecture-qa:' + (videoKey || 'default');
@@ -236,6 +245,25 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     });
   });
 
+  function bindTopButtonOnce() {
+    if (!qaList || !toTopBtn) return;
+    if (!boundScroll) {
+      qaList.addEventListener('scroll', () => {
+        const y = qaList.scrollTop || 0;
+        toTopBtn.classList.toggle('hidden', y < 240);
+      }, { passive: true });
+      boundScroll = true;
+    }
+
+    if (!boundTopBtn) {
+      toTopBtn.addEventListener('click', () => {
+        if (!qaList) return;
+        qaList.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+      boundTopBtn = true;
+    }
+  }
+
   function render() {
     videoKeyLabel.textContent = videoKey || 'default';
     providerLabel.textContent = provider === 'youtube' ? ('YouTube · ' + (youtubeId || '')) : 'Native';
@@ -260,9 +288,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
               escapeHtml(item.answer) +
             '</div>' +
             '<div class="mt-3 flex justify-end">' +
-              '<button type="button" class="qa-answer-zoombtn" ' +
-                'data-action="answerZoom" ' +
-                'data-idx="' + String(originalIndex) + '">' +
+              '<button type="button" class="qa-answer-zoombtn" data-action="answerZoom" data-idx="' + String(originalIndex) + '">' +
                 '답변크게보기' +
               '</button>' +
             '</div>' +
@@ -273,9 +299,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
             '<div class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">답변</div>' +
             '<div class="text-[13px] leading-normal text-red-400 whitespace-pre-wrap">' + escapeHtml(item.error) + '</div>' +
             '<div class="mt-3 flex justify-end">' +
-              '<button type="button" class="qa-answer-zoombtn" ' +
-                'data-action="answerZoomError" ' +
-                'data-idx="' + String(originalIndex) + '">' +
+              '<button type="button" class="qa-answer-zoombtn" data-action="answerZoomError" data-idx="' + String(originalIndex) + '">' +
                 '답변크게보기' +
               '</button>' +
             '</div>' +
@@ -299,24 +323,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
       qaList.appendChild(div);
     });
 
-    // ✅ TOP 버튼 로직 (스크롤 대상: qaList)
-    function syncTopButton() {
-      if (!toTopBtn || !qaList) return;
-      const y = qaList.scrollTop || 0;
-      toTopBtn.classList.toggle('hidden', y < 240);
-    }
-
-    if (qaList) {
-      qaList.addEventListener('scroll', syncTopButton, { passive: true });
-    }
-
-    if (toTopBtn) {
-      toTopBtn.addEventListener('click', () => {
-        if (!qaList) return;
-        qaList.scrollTo({ top: 0, behavior: 'smooth' });
-      });
-    }
-
+    bindTopButtonOnce();
     syncQAUI();
   }
 
@@ -452,7 +459,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   }
 
   // =========================
-  // ✅ Hybrid: 실시간 표시(Web Speech)
+  // ✅ Hybrid: 실시간 표시(Web Speech) - 안정화 버전
   // =========================
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const realtimeRec = SpeechRecognition ? new SpeechRecognition() : null;
@@ -460,7 +467,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   function applyRealtimeTextToTextarea() {
     const live = (realtimeFinal + (realtimeInterim ? (' ' + realtimeInterim) : '')).trim();
     const base = (realtimeBaseText || '').trim();
-
     const composed = base ? (base + '\n' + live).trim() : live;
 
     if (composed) {
@@ -474,6 +480,8 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
 
   function startRealtimeSpeech() {
     if (!realtimeRec) return false;
+
+    realtimeWanted = true;
 
     realtimeRec.lang = 'ko-KR';
     realtimeRec.interimResults = true;
@@ -502,16 +510,50 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     };
 
     realtimeRec.onerror = (e) => {
+      const err = e.error || '';
+
+      // ✅ 충돌/중단 계열이면 "실시간만" 포기하고 계속 녹음(폴백)
+      if (err === 'audio-capture' || err === 'aborted') {
+        voiceStatus.textContent = '실시간 인식이 불안정합니다. (실시간 표시는 중단하고, 종료 후 고품질 전사로 진행합니다)';
+        try { realtimeRec.stop(); } catch (_) {}
+        isRealtimeListening = false;
+        realtimeInterim = '';
+        return;
+      }
+
       voiceStatus.textContent =
-        e.error === 'not-allowed' ? '마이크 권한이 필요합니다.' :
-        e.error === 'no-speech' ? '음성이 감지되지 않았습니다.' :
-        ('실시간 인식 오류: ' + e.error);
+        err === 'not-allowed' ? '마이크 권한이 필요합니다. 브라우저 권한을 허용해 주세요.' :
+        err === 'service-not-allowed' ? '브라우저 정책으로 실시간 음성 인식이 차단되었습니다.' :
+        err === 'no-speech' ? '음성이 감지되지 않았습니다.' :
+        ('실시간 인식 오류: ' + err);
+
+      // 권한/정책 이슈는 재시작해도 소용 없음
+      if (err === 'not-allowed' || err === 'service-not-allowed') return;
+
+      // 기타 오류는 원하면 재시작 시도
+      if (realtimeWanted && isRecording) {
+        clearTimeout(realtimeRestartTimer);
+        realtimeRestartTimer = setTimeout(() => {
+          try { realtimeRec.start(); isRealtimeListening = true; } catch (_) {}
+        }, 400);
+      }
     };
 
     realtimeRec.onend = () => {
       isRealtimeListening = false;
       realtimeInterim = '';
       applyRealtimeTextToTextarea();
+
+      // ✅ 녹음 중이고 실시간을 원하면 자동 재시작
+      if (realtimeWanted && isRecording) {
+        clearTimeout(realtimeRestartTimer);
+        realtimeRestartTimer = setTimeout(() => {
+          try {
+            realtimeRec.start();
+            isRealtimeListening = true;
+          } catch (_) {}
+        }, 250);
+      }
     };
 
     try {
@@ -524,6 +566,10 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   }
 
   function stopRealtimeSpeech() {
+    realtimeWanted = false;
+    clearTimeout(realtimeRestartTimer);
+    realtimeRestartTimer = null;
+
     if (!realtimeRec) return;
     try { realtimeRec.stop(); } catch (_) {}
   }
@@ -540,7 +586,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     if (recording) {
       voiceBtn.classList.add('listening', '!border-red-500/30', '!bg-red-500/15', '!text-red-300');
       voiceBtn.textContent = '⏹️ 음성 끝내기';
-      voiceStatus.textContent = '🎙 음성 입력 중... (실시간 표시됨)';
+      voiceStatus.textContent = '🎙 음성 입력 중... (실시간 표시는 보조 기능)';
     } else {
       voiceBtn.classList.remove('listening', '!border-red-500/30', '!bg-red-500/15', '!text-red-300');
       voiceBtn.textContent = '🎤 음성 질문';
@@ -559,7 +605,6 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   // ✅ /api/stt 응답에서 (text, model, cleaned, clean_model)까지 받아오기
   async function sttTranscribe(blob) {
     const fd = new FormData();
-
     const ext = inferExtFromMime(blob.type);
     fd.append('audio', blob, `speech.${ext}`);
 
@@ -575,12 +620,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     const cleaned = !!(data && data.cleaned);
     const cleanModel = (data && data.clean_model) ? String(data.clean_model) : '';
 
-    return {
-      text: text.trim(),
-      model,
-      cleaned,
-      cleanModel
-    };
+    return { text: text.trim(), model, cleaned, cleanModel };
   }
 
   function replaceLiveTextWithSTT(sttText) {
@@ -606,13 +646,13 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
       return;
     }
 
-    // 1) 실시간 표시(WebSpeech)
+    // 1) 실시간 표시(WebSpeech) 시작(가능하면)
     const realtimeOk = startRealtimeSpeech();
     if (!realtimeOk) {
       voiceStatus.textContent = '🎙 음성 입력 중... (실시간 표시는 브라우저 미지원)';
     }
 
-    // 2) /api/stt 용 녹음
+    // 2) /api/stt 용 녹음 시작
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
     const preferredTypes = [
@@ -647,8 +687,8 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
         return;
       }
 
-      // ✅ 상태 문구를 Whisper가 아닌 STT로 표시
-      voiceStatus.textContent = '🧠 STT 전사 중...';
+      // ✅ 상태 문구
+      voiceStatus.textContent = '🧠 고품질 전사 중...';
 
       try {
         const blob = new Blob(chunks, { type: mediaRecorder?.mimeType || 'audio/webm' });
@@ -664,7 +704,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
         // ✅ 실시간(WebSpeech) 텍스트를 STT 결과로 “정제/교체”
         replaceLiveTextWithSTT(sttFinalText);
 
-        // ✅ 실제 사용 모델 표시 (gpt-4o-transcribe 등)
+        // ✅ 실제 사용 모델 표시
         const modelLabel = result.model ? `(${result.model})` : '';
         const cleanLabel = (result.cleaned && result.cleanModel) ? ` + clean:${result.cleanModel}` : '';
         voiceStatus.textContent = `✅ 전사 완료 ${modelLabel}${cleanLabel}`;
@@ -729,7 +769,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
   // =========================
   // ✅ “답변크게보기” 클릭 처리 (이벤트 위임)
   // =========================
-  if (qaList) {
+  if (qaList && !boundQaListDelegate) {
     qaList.addEventListener('click', (e) => {
       const btn = e.target && e.target.closest ? e.target.closest('button[data-action]') : null;
       if (!btn) return;
@@ -762,6 +802,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
         answer: answerText || ''
       });
     });
+    boundQaListDelegate = true;
   }
 
   // =========================
@@ -790,7 +831,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
     notifyParentPause();
   });
 
-  // ✅ 음성 버튼: “실시간 표시 + 최종 /api/stt 정제” 토글
+  // ✅ 음성 버튼: “실시간 표시(보조) + 최종 /api/stt(핵심)” 토글
   voiceBtn.addEventListener('click', async function () {
     if (voiceBtn.disabled) return;
 
@@ -848,7 +889,7 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
 
   // 초기 안내
   if (!SpeechRecognition) {
-    voiceStatus.textContent = '실시간 자막(Web Speech)이 미지원입니다. (끝내기 후 STT로 전사됩니다)';
+    voiceStatus.textContent = '실시간 자막(Web Speech)이 미지원입니다. (끝내기 후 고품질 전사로 처리됩니다)';
   } else {
     voiceStatus.textContent = '';
   }
