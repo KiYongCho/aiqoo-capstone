@@ -1,5 +1,5 @@
 // public/js/qa.view.js
-import { escapeHtml, snippet } from "./utils.js";
+import { escapeHtml, snippet } from "/js/core/utils.js";
 
 export function renderQA(container, items) {
   if (!container) return;
