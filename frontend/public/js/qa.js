@@ -1,41 +1,45 @@
-// public/js/qa.js (ENTRY MODULE)
-// - 최초 진입 시 질문 시작 오버레이 표시
-// - Enter로 전송 (Shift+Enter 줄바꿈)
-// - 카카오 공유: mobileWebUrl 제거 + 답변 전체 전송
+// public/js/qa.js
+// - Q&A 엔트리 모듈
+// - 크게보기(답변 모달) 기능 포함
+// - Enter 전송(Shift+Enter 줄바꿈)
 
-import { createLectureStore } from "/js/core/store.js";
-import { normalizeText, formatTime } from "/js/core/utils.js";
-import { askLLM } from "/js/services/api.service.js";
-import { createPlayerService } from "/js/services/player.service.js";
-import { createSTTService } from "/js/services/stt.service.js";
-import { createShareService } from "/js/services/share.service.js";
-import { renderQA } from "/js/ui/qa.view.js";
-import { createModal } from "/js/ui/modal.view.js";
+import { createLectureStore } from "./store.js";
+import { normalizeText, formatTime } from "./utils.js";
+import { askLLM } from "./api.service.js";
+import { createPlayerService } from "./player.service.js";
+import { createSTTService } from "./stt.service.js";
+import { createShareService } from "./share.service.js";
+import { renderQA } from "./qa.view.js";
+import { createModal } from "./modal.view.js";
 
 (function () {
   "use strict";
 
   const $ = (id) => document.getElementById(id);
 
+  // Overlay
   const playOverlay = $("playOverlay");
   const overlayBtn = $("overlayBtn");
 
+  // Inputs
   const voiceBtn = $("voiceBtn");
   const submitBtn = $("submitBtn");
   const voiceStatus = $("voiceStatus");
-
   const questionInput = $("questionInput");
+
+  // List
   const qaList = $("qaList");
   const qaEmpty = $("qaEmpty");
 
+  // Labels
   const videoKeyLabel = $("videoKeyLabel");
   const providerLabel = $("providerLabel");
 
+  // Reset
   const resetWrap = $("resetWrap");
   const resetBtn = $("resetBtn");
-  const toTopBtn = $("toTopBtn");
 
-  // answer modal
+  // Answer modal
   const answerModal = $("answerModal");
   const answerModalBody = $("answerModalBody");
   const answerModalMeta = $("answerModalMeta");
@@ -44,15 +48,14 @@ import { createModal } from "/js/ui/modal.view.js";
 
   const answerModalApi = createModal(answerModal, answerModalBody);
 
-  // Kakao key
+  // Kakao key (body data-kakao-key 또는 localStorage)
   const kakaoKey =
     document.body?.dataset?.kakaoKey ||
     localStorage.getItem("AIQOO_KAKAO_KEY") ||
     "";
-
   const share = createShareService(kakaoKey);
 
-  // State
+  // Player bridge (parent <-> iframe)
   const player = createPlayerService();
 
   let provider = "native";
@@ -61,14 +64,11 @@ import { createModal } from "/js/ui/modal.view.js";
   let videoKey = "default";
 
   let isPlaying = false;
-
-  // ✅ 최초 진입 오버레이를 강제로 보여주고, 한번 시작하면 이후엔 영상 상태로 제어
-  let hasStarted = false;
+  let hasStarted = false; // 시작 모달을 한번 눌렀는지
 
   const store = createLectureStore(() => videoKey);
   let items = store.load();
 
-  // Helpers
   function setOverlayVisible(show) {
     if (!playOverlay) return;
     playOverlay.classList.toggle("hidden", !show);
@@ -88,7 +88,9 @@ import { createModal } from "/js/ui/modal.view.js";
   function syncLabels() {
     if (videoKeyLabel) videoKeyLabel.textContent = videoKey || "default";
     if (providerLabel) {
-      const extra = provider === "youtube" ? `YouTube${youtubeId ? ` (${youtubeId})` : ""}` : "Native";
+      const extra = provider === "youtube"
+        ? `YouTube${youtubeId ? ` (${youtubeId})` : ""}`
+        : "Native";
       providerLabel.textContent = `(${extra})`;
     }
   }
@@ -97,26 +99,6 @@ import { createModal } from "/js/ui/modal.view.js";
     if (qaEmpty) qaEmpty.classList.toggle("hidden", items.length !== 0);
     renderQA(qaList, items);
     if (resetWrap) resetWrap.classList.toggle("hidden", items.length === 0);
-
-    if (toTopBtn && qaList) {
-      const need = qaList.scrollHeight > qaList.clientHeight + 10;
-      toTopBtn.classList.toggle("hidden", !need);
-    }
-  }
-
-  function safePushItem(q, a, timeInfo) {
-    const it = {
-      question: q,
-      answer: a,
-      t: timeInfo?.t ?? 0,
-      tLabel: timeInfo?.tLabel ?? "00:00",
-      provider: timeInfo?.provider ?? provider,
-      youtubeId: timeInfo?.youtubeId ?? youtubeId,
-      createdAt: formatTime(),
-    };
-    items.push(it);
-    store.save(items);
-    render();
   }
 
   function getItemByIndex(index) {
@@ -133,7 +115,7 @@ import { createModal } from "/js/ui/modal.view.js";
     }
   }
 
-  // ✅ 카카오 공유 텍스트: "응답 전체" 포함 (요청사항 4)
+  // 카톡 공유: 응답 전체(요청사항 유지)
   function makeKakaoShareTextFull(item) {
     const q = normalizeText(item.question || "");
     const a = normalizeText(item.answer || "");
@@ -147,7 +129,24 @@ import { createModal } from "/js/ui/modal.view.js";
     return `AIQOO Q&A 공유\n\n- 시각: ${item.tLabel || "00:00"}\n- 생성: ${item.createdAt || ""}\n- 영상키: ${videoKey}\n- 링크: ${url}\n\n[Q]\n${q}\n\n[A]\n${a}\n`;
   }
 
-  // Parent <-> iframe messaging
+  function pushItem(q, a, timeInfo) {
+    const it = {
+      question: q,
+      answer: a,
+      t: timeInfo?.t ?? 0,
+      tLabel: timeInfo?.tLabel ?? "00:00",
+      provider: timeInfo?.provider ?? provider,
+      youtubeId: timeInfo?.youtubeId ?? youtubeId,
+      createdAt: formatTime(),
+    };
+    items.push(it);
+    store.save(items);
+    render();
+  }
+
+  // ----------------------------
+  // Parent messaging
+  // ----------------------------
   player.onMessage((msg) => {
     if (msg.type === "videoInfo") {
       videoKey = msg.videoKey || "default";
@@ -164,14 +163,14 @@ import { createModal } from "/js/ui/modal.view.js";
     if (msg.type === "videoPlaying") {
       isPlaying = true;
 
-      // ✅ 시작 전엔 무조건 오버레이 유지
+      // 시작 전: 항상 모달 유지
       if (!hasStarted) {
         setOverlayVisible(true);
         setInputsEnabled(false);
         return;
       }
 
-      // 시작 후에는 재생 중 잠금
+      // 시작 후: 재생 중 잠금 + 오버레이
       setInputsEnabled(false);
       setOverlayVisible(true);
       return;
@@ -180,24 +179,24 @@ import { createModal } from "/js/ui/modal.view.js";
     if (msg.type === "videoPaused") {
       isPlaying = false;
 
-      // ✅ 시작 전엔 여전히 오버레이 유지
+      // 시작 전: 여전히 모달 유지
       if (!hasStarted) {
         setOverlayVisible(true);
         setInputsEnabled(false);
         return;
       }
 
-      // 시작 후 일시정지면 질문 가능
+      // 시작 후: 일시정지면 질문 가능
       setOverlayVisible(false);
       setInputsEnabled(true);
       return;
     }
   });
 
-  // 부모에게 준비 완료
+  // iframe 준비 완료
   window.parent.postMessage({ type: "qaReady" }, "*");
 
-  // ✅ 최초 진입: 오버레이 즉시 표시
+  // 최초 진입: “질문 시작하기” 모달 표시
   setOverlayVisible(true);
   setInputsEnabled(false);
 
@@ -205,37 +204,16 @@ import { createModal } from "/js/ui/modal.view.js";
   if (overlayBtn) {
     overlayBtn.addEventListener("click", () => {
       hasStarted = true;
-
-      // 영상이 재생 중이든 아니든, 부모에 pause 요청
-      player.notifyPause();
-
+      player.notifyPause(); // 부모에게 pause 요청
       setOverlayVisible(false);
       setInputsEnabled(true);
-
       setTimeout(() => questionInput?.focus(), 0);
     });
   }
 
-  // Example chips
-  const exampleWrap = $("exampleChips");
-  if (exampleWrap) {
-    exampleWrap.addEventListener("click", (e) => {
-      const btn = e.target?.closest?.("[data-example]");
-      if (!btn) return;
-      const text = btn.getAttribute("data-example") || "";
-      if (questionInput) questionInput.value = text;
-      questionInput?.focus();
-    });
-  }
-
-  // TOP button
-  if (toTopBtn && qaList) {
-    toTopBtn.addEventListener("click", () => {
-      qaList.scrollTo({ top: 0, behavior: "smooth" });
-    });
-  }
-
-  // ✅ Q&A item actions (zoom/kakao/mail)
+  // ----------------------------
+  // ✅ 크게보기/공유 버튼 이벤트 위임
+  // ----------------------------
   if (qaList) {
     qaList.addEventListener("click", async (e) => {
       const btn = e.target?.closest?.("button[data-action]");
@@ -250,45 +228,37 @@ import { createModal } from "/js/ui/modal.view.js";
         if (answerModalMeta) {
           answerModalMeta.textContent = `${item.createdAt || ""} · ${item.tLabel || "00:00"} · ${item.provider || ""}`;
         }
-        document.documentElement.classList.add("qa-modal-open");
         answerModalApi.open(item.answer || "");
         return;
       }
 
       if (action === "kakao") {
         const link = getParentUrlSafe();
-        const text = makeKakaoShareTextFull(item); // ✅ full
+        const text = makeKakaoShareTextFull(item);
         try {
           await share.shareKakao(text, link);
         } catch (err) {
-          alert("카카오 공유 실패: 메시지가 너무 길거나(제한) 네트워크 문제일 수 있습니다.");
           console.error(err);
+          alert("카카오 공유 실패: 길이 제한 또는 도메인/키 설정 문제일 수 있습니다.");
         }
         return;
       }
 
       if (action === "mail") {
         const subject = `AIQOO Q&A 공유 (${item.tLabel || "00:00"})`;
-        const body = makeMailBody(item);
-        share.shareMail(subject, body);
+        share.shareMail(subject, makeMailBody(item));
         return;
       }
     });
   }
 
-  // Answer modal buttons
+  // Modal close / dim click / copy
   if (answerCloseBtn) {
-    answerCloseBtn.addEventListener("click", () => {
-      document.documentElement.classList.remove("qa-modal-open");
-      answerModalApi.close();
-    });
+    answerCloseBtn.addEventListener("click", () => answerModalApi.close());
   }
   if (answerModal) {
     answerModal.addEventListener("click", (e) => {
-      if (e.target?.dataset?.close === "1") {
-        document.documentElement.classList.remove("qa-modal-open");
-        answerModalApi.close();
-      }
+      if (e.target?.dataset?.close === "1") answerModalApi.close();
     });
   }
   if (answerCopyBtn) {
@@ -302,7 +272,9 @@ import { createModal } from "/js/ui/modal.view.js";
     });
   }
 
-  // STT (voice)
+  // ----------------------------
+  // STT
+  // ----------------------------
   const stt = createSTTService(
     (status) => setVoiceStatus(status),
     (text) => {
@@ -316,11 +288,9 @@ import { createModal } from "/js/ui/modal.view.js";
 
     voiceBtn.addEventListener("click", async () => {
       if (!hasStarted) {
-        // 시작 전이면 먼저 시작 유도
         setOverlayVisible(true);
         return;
       }
-
       if (isPlaying) {
         player.notifyPause();
         return;
@@ -344,7 +314,9 @@ import { createModal } from "/js/ui/modal.view.js";
     });
   }
 
-  // Ask (text)
+  // ----------------------------
+  // Ask
+  // ----------------------------
   async function submitQuestion() {
     if (!hasStarted) return;
 
@@ -357,7 +329,7 @@ import { createModal } from "/js/ui/modal.view.js";
     if (!q) return;
 
     setInputsEnabled(false);
-    submitBtn.textContent = "⏳ 응답 생성중...";
+    if (submitBtn) submitBtn.textContent = "⏳ 응답 생성중...";
     setVoiceStatus("");
 
     let timeInfo;
@@ -378,12 +350,12 @@ import { createModal } from "/js/ui/modal.view.js";
         youtubeId,
       });
 
-      safePushItem(q, answer, timeInfo);
+      pushItem(q, answer, timeInfo);
       if (questionInput) questionInput.value = "";
     } catch (e) {
-      safePushItem(q, `❗ 오류: ${e?.message || "요청 실패"}`, timeInfo);
+      pushItem(q, `❗ 오류: ${e?.message || "요청 실패"}`, timeInfo);
     } finally {
-      submitBtn.textContent = "📄 텍스트 질문";
+      if (submitBtn) submitBtn.textContent = "📄 텍스트 질문";
       setInputsEnabled(true);
       questionInput?.focus();
     }
@@ -391,7 +363,7 @@ import { createModal } from "/js/ui/modal.view.js";
 
   if (submitBtn) submitBtn.addEventListener("click", submitQuestion);
 
-  // ✅ Enter로 전송 / Shift+Enter 줄바꿈 (요청사항 2)
+  // ✅ Enter 전송 / Shift+Enter 줄바꿈
   if (questionInput) {
     questionInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -401,7 +373,6 @@ import { createModal } from "/js/ui/modal.view.js";
     });
   }
 
-  // reset
   if (resetBtn) {
     resetBtn.addEventListener("click", () => {
       if (!confirm("현재 강의의 Q&A를 모두 삭제할까요?")) return;
@@ -411,7 +382,7 @@ import { createModal } from "/js/ui/modal.view.js";
     });
   }
 
-  // init
+  // Init
   syncLabels();
   render();
 })();
