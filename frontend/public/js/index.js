@@ -1,5 +1,14 @@
-// js/index.js (YouTube 초기 로딩 안정화 + QA 상태 동기화)
+// public/js/index.js
+// - 첫 화면에서 기본 영상 자동 로드
+// - qaFrame을 id 우선으로 안정적으로 찾기
+// - DOM 누락 시 크래시 방지(가드)
+
 (function () {
+  "use strict";
+
+  // ✅ 첫 화면 기본 영상 (원하시는 강의 URL로 교체하세요)
+  const DEFAULT_VIDEO_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+
   const videoUrlInput = document.getElementById("videoUrl");
   const videoApplyBtn = document.getElementById("videoApply");
 
@@ -8,10 +17,11 @@
   const ytPlayerEl = document.getElementById("ytPlayer");
   const placeholder = document.getElementById("videoPlaceholder");
 
-  // ✅ qaFrame은 src 고정 문자열 매칭이 자주 깨지므로, id 우선 + qa.html 포함 iframe fallback
+  // ✅ 기존: iframe[src="html/qa.html"] → /html/qa.html이면 못 찾음
+  // ✅ id="qaFrame"를 우선 사용
   const qaFrame =
     document.getElementById("qaFrame") ||
-    document.querySelector('iframe[src$="qa.html"], iframe[src*="qa.html"]');
+    document.querySelector('iframe[src$="/html/qa.html"], iframe[src*="qa.html"]');
 
   function postToQA(msg) {
     if (!qaFrame || !qaFrame.contentWindow) return;
@@ -56,7 +66,6 @@
     return `${mm}:${ss}`;
   }
 
-  // ✅ DOM 없을 때도 안전하게 no-op
   function showPlaceholder(show) {
     if (!placeholder) return;
     placeholder.classList.toggle("hidden", !show);
@@ -111,7 +120,6 @@
   }
 
   function pauseVideoAndBroadcast() {
-    // stateChange 누락 대비: paused를 직접 전파하는 safety net 포함
     if (provider === "youtube" && ytPlayer && typeof ytPlayer.pauseVideo === "function") {
       ytPlayer.pauseVideo();
       setTimeout(() => sendPaused(), 150);
@@ -125,7 +133,7 @@
     setTimeout(() => sendPaused(), 0);
   }
 
-  // ✅ Native events (nativeVideo가 없는 페이지에서도 크래시 방지)
+  // Native events (가드)
   if (nativeVideo) {
     nativeVideo.addEventListener("play", () => {
       provider = "native";
@@ -141,11 +149,10 @@
     });
   }
 
-  // YouTube API safe load
+  // YouTube API load
   function loadYouTubeApiOnce() {
     if (window.YT && window.YT.Player) return;
 
-    // 콜백을 먼저 정의 → 콜백 누락(랜덤) 방지
     window.onYouTubeIframeAPIReady = function () {
       createYouTubePlayer();
     };
@@ -159,8 +166,6 @@
   function createYouTubePlayer() {
     if (!(window.YT && window.YT.Player)) return;
     if (ytPlayer) return;
-
-    // ✅ ytPlayerEl이 없으면 생성 불가(크래시 방지)
     if (!ytPlayerEl) return;
 
     ytPlayer = new YT.Player(ytPlayerEl, {
@@ -174,8 +179,6 @@
             ytPlayer.loadVideoById(pendingYoutubeId);
             pendingYoutubeId = "";
           }
-
-          // 최초 진입/QA 준비 이후 상태 누락 방지
           broadcastCurrentState();
         },
         onStateChange: (event) => {
@@ -187,11 +190,9 @@
         }
       }
     });
-
     window.ytPlayer = ytPlayer;
   }
 
-  // apply
   function applyVideo(url) {
     videoUrl = (url || "").trim();
 
@@ -207,8 +208,9 @@
       return;
     }
 
-    // nativeVideo가 null이어도 try/catch로 안전
-    try { nativeVideo && nativeVideo.pause(); } catch (_) {}
+    try {
+      if (nativeVideo) nativeVideo.pause();
+    } catch (_) {}
 
     if (isYouTubeUrl(videoUrl)) {
       provider = "youtube";
@@ -229,7 +231,6 @@
         else pendingYoutubeId = youtubeId;
       }
 
-      // 재생 전 상태는 paused에 가깝기 때문에 초기 질문 UX 안정화
       setTimeout(() => sendPaused(), 0);
     } else {
       provider = "native";
@@ -240,7 +241,6 @@
       showYouTube(false);
       showNative(true);
 
-      // ✅ nativeVideo 없으면 여기서도 중단 방지
       if (nativeVideo) {
         nativeVideo.src = videoUrl;
         nativeVideo.load();
@@ -251,7 +251,7 @@
     }
   }
 
-  // ✅ URL 입력 UI가 없는 페이지에서도 크래시 방지
+  // UI events (가드)
   if (videoApplyBtn && videoUrlInput) {
     videoApplyBtn.addEventListener("click", () => applyVideo(videoUrlInput.value || ""));
     videoUrlInput.addEventListener("keydown", (e) => {
@@ -289,7 +289,13 @@
   showNative(false);
   showYouTube(false);
 
-  // ✅ videoUrlInput이 없으면 접근하면 안 됨
-  const initialUrl = videoUrlInput ? (videoUrlInput.value || "").trim() : "";
-  if (initialUrl) applyVideo(initialUrl);
+  // ✅ 핵심: 첫 화면 기본 영상 자동 로드
+  const initialUrl = (videoUrlInput?.value || "").trim() || DEFAULT_VIDEO_URL;
+
+  // 입력창에도 기본값을 반영(사용자에게 보이게)
+  if (videoUrlInput && !videoUrlInput.value.trim()) {
+    videoUrlInput.value = initialUrl;
+  }
+
+  applyVideo(initialUrl);
 })();
