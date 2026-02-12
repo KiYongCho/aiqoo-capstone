@@ -7,22 +7,10 @@ const API_BASE = "https://aiqa-capstone.onrender.com";
  * - 카카오 디벨로퍼스에서 앱 생성 후 JavaScript 키를 넣어주세요.
  * - 플랫폼(Web) 도메인에 배포 도메인을 등록해야 공유가 됩니다.
  */
-const KAKAO_JS_KEY = "4632c8134c3d32664cbef8f20b497882";
-
-// 카카오 공유에 넣을 대표 이미지(https 필수 권장)
-// 기본: 현재 origin의 /favicon.ico (https가 아닐 경우 빈 값이 될 수 있음)
-function defaultShareImageUrl() {
-  try {
-    const o = window.location.origin;
-    if (o.startsWith("https://")) return o + "/favicon.ico";
-    return "";
-  } catch {
-    return "";
-  }
-}
+const KAKAO_JS_KEY = "PASTE_YOUR_KAKAO_JAVASCRIPT_KEY_HERE";
 
 // 답변 일부(요약용) 길이
-const SHARE_SNIPPET_LEN = 220;
+const SHARE_SNIPPET_LEN = 180;
 
 (function () {
   const questionInput = document.getElementById('questionInput');
@@ -100,16 +88,13 @@ const SHARE_SNIPPET_LEN = 220;
       if (!window.Kakao) return false;
       if (!KAKAO_JS_KEY || KAKAO_JS_KEY.includes("PASTE_YOUR")) return false;
 
-      // 이미 init되어 있으면 재init 불필요
       if (window.Kakao.isInitialized && window.Kakao.isInitialized()) return true;
-
       window.Kakao.init(KAKAO_JS_KEY);
       return window.Kakao.isInitialized ? window.Kakao.isInitialized() : true;
     } catch (_) {
       return false;
     }
   }
-
   const kakaoReady = initKakaoOnce();
 
   function storageKey() {
@@ -156,11 +141,12 @@ const SHARE_SNIPPET_LEN = 220;
   }
 
   function getShareLink() {
-    // 공유 링크는 “현재 페이지 링크”가 원칙인데,
-    // iframe 안이면 window.location.href가 qa.html이 될 수 있음.
-    // 사용자가 실제 보고 있는 부모 페이지가 referrer로 들어오는 경우가 많아 referrer를 우선 사용.
-    const refUrl = document.referrer || '';
-    if (refUrl && refUrl.startsWith('http')) return refUrl;
+    // ✅ “현재 페이지 링크” 우선
+    // - iframe이면 qa.html이 될 수 있지만, 그게 현재 페이지 링크이기도 함
+    // ✅ referrer가 실제 부모 페이지라면 referrer를 우선 사용
+    const r = document.referrer || '';
+    if (r && r.startsWith('https://')) return r;
+    // http 환경이면 카톡 PC에서 “모바일에서 확인”이 뜰 확률이 커서 https referrer만 우선
     return window.location.href;
   }
 
@@ -255,7 +241,7 @@ const SHARE_SNIPPET_LEN = 220;
   });
 
   // =========================
-  // ✅ 공유 기능: 메일 / 카카오
+  // ✅ 공유 기능: 메일 / 카카오(텍스트 템플릿)
   // =========================
   function openMailComposer({ subject, body }) {
     const s = encodeURIComponent(subject || 'AIQOO 답변 공유');
@@ -263,14 +249,14 @@ const SHARE_SNIPPET_LEN = 220;
     window.location.href = `mailto:?subject=${s}&body=${b}`;
   }
 
-  async function shareToKakao({ title, description, linkUrl, imageUrl }) {
-    // SDK 사용
+  async function shareToKakaoText({ title, text, linkUrl }) {
     const ok = initKakaoOnce();
+
+    // 폴백: Web Share (모바일)
     if (!ok || !window.Kakao || !window.Kakao.Share) {
-      // 폴백: Web Share (모바일)
       if (navigator.share) {
         try {
-          await navigator.share({ title, text: `${title}\n\n${description}\n\n${linkUrl}`, url: linkUrl });
+          await navigator.share({ title, text: `${text}\n\n${linkUrl}`, url: linkUrl });
           return;
         } catch (_) {}
       }
@@ -278,36 +264,12 @@ const SHARE_SNIPPET_LEN = 220;
       return;
     }
 
-    const img = imageUrl || defaultShareImageUrl();
-
-    // Kakao Link는 imageUrl이 https인 것이 권장(일부 환경에서 필수)
-    if (!img || !String(img).startsWith('http')) {
-      // 이미지가 없으면 일단 description 중심으로 공유 시도(일부 템플릿은 image 필수)
-      // 안전하게 Web Share로 폴백
-      if (navigator.share) {
-        try {
-          await navigator.share({ title, text: `${title}\n\n${description}\n\n${linkUrl}`, url: linkUrl });
-          return;
-        } catch (_) {}
-      }
-      alert('카카오 공유 이미지 URL(https)을 설정해 주세요. 기본값: https://도메인/favicon.ico');
-      return;
-    }
-
+    // ✅ 핵심: objectType 'text' → 텍스트가 카톡 메시지에 확실히 표시됨
     window.Kakao.Share.sendDefault({
-      objectType: 'feed',
-      content: {
-        title: title,
-        description: description,
-        imageUrl: img,
-        link: { mobileWebUrl: linkUrl, webUrl: linkUrl }
-      },
-      buttons: [
-        {
-          title: '페이지 열기',
-          link: { mobileWebUrl: linkUrl, webUrl: linkUrl }
-        }
-      ]
+      objectType: 'text',
+      text: `${text}\n\n🔗 ${linkUrl}`,
+      link: { mobileWebUrl: linkUrl, webUrl: linkUrl },
+      buttonTitle: '페이지 열기'
     });
   }
 
@@ -318,7 +280,9 @@ const SHARE_SNIPPET_LEN = 220;
     const aSnippet = snippet(a, SHARE_SNIPPET_LEN);
 
     const title = `AIQOO 답변 공유 · Q${idx + 1}`;
-    const desc = `Q: ${snippet(q, 80)}\nA: ${aSnippet}`;
+
+    // ✅ 줄바꿈 최소/한 줄 중심: PC 카톡에서도 누락 확률 감소
+    const textLine = `Q: ${snippet(q, 70)} / A: ${aSnippet}`;
 
     const mailSubject = `AIQOO 답변 공유 (Q${idx + 1})`;
     const mailBody =
@@ -337,9 +301,8 @@ ${linkUrl}
 
     return {
       title,
-      description: desc,
+      textLine,
       linkUrl,
-      imageUrl: defaultShareImageUrl(),
       mailSubject,
       mailBody
     };
@@ -672,7 +635,7 @@ ${linkUrl}
       const err = e.error || '';
 
       if (err === 'audio-capture' || err === 'aborted') {
-        voiceStatus.textContent = '실시간 인식이 불안정합니다. (실시간 표시는 중단하고, 종료 후 고품질 전사로 진행합니다)';
+        voiceStatus.textContent = '실시간 인식이 불안정합니다. (종료 후 고품질 전사로 반영됩니다)';
         try { realtimeRec.stop(); } catch (_) {}
         isRealtimeListening = false;
         realtimeInterim = '';
@@ -951,14 +914,12 @@ ${linkUrl}
         }
 
         if (action === 'shareKakao') {
-          // 버튼 중복 클릭 방지
           btn.disabled = true;
           try {
-            await shareToKakao({
+            await shareToKakaoText({
               title: payload.title,
-              description: payload.description,
-              linkUrl: payload.linkUrl,
-              imageUrl: payload.imageUrl
+              text: payload.textLine,
+              linkUrl: payload.linkUrl
             });
           } finally {
             btn.disabled = false;
@@ -1056,10 +1017,7 @@ ${linkUrl}
     voiceStatus.textContent = '';
   }
 
-  // 카카오 초기화 상태 안내(개발자용)
   if (!kakaoReady && KAKAO_JS_KEY && !KAKAO_JS_KEY.includes("PASTE_YOUR")) {
-    // 키는 있는데 init 실패(도메인 미등록/SDK 로드 실패 등)
-    // 콘솔에만 로그
     try { console.warn('[AIQOO] Kakao init failed. Check domain whitelist & key.'); } catch (_) {}
   }
 })();
