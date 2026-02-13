@@ -1,9 +1,10 @@
 // /js/ui/qa.view.js
-// - 내부 .aiqoo-qa-list에만 렌더
 // - Q/A는 ❓/💡 이모지 표시
 // - 빈 Q/A는 렌더 금지
-// - 액션 버튼: 🔎 크게보기 / 💬 카톡공유 / 📋 복사하기 / ✉️ 메일보내기
-// - 최신이 위로: prepend 지원
+// - 액션 버튼(크게보기/카톡공유/복사하기/메일보내기)을
+//   ✅ 답변 위/아래 모두 노출
+//   ✅ 우측 정렬(flex-end)
+// - 최신이 위로: renderQA에서 mode="prepend" 지원
 
 function normalizeText(input) {
   return String(input ?? "")
@@ -45,6 +46,34 @@ export function clearQA(containerEl) {
   if (list) list.innerHTML = "";
 }
 
+function actionBarHTML({ q, a, metaText }) {
+  // ✅ 버튼 텍스트: 크게보기 / 카톡공유 / 복사하기 / 메일보내기
+  // ✅ 모두 우측 정렬되게 wrapper가 flex-end로 구성됨
+  return `
+    <div class="aiqoo-qa-actions mt-2 flex flex-wrap gap-2 items-center justify-end">
+      <button type="button" class="qa-pill-btn qa-answer-zoombtn"
+        data-act="zoom"
+        data-a="${escapeHTML(a)}"
+        data-meta="${escapeHTML(metaText)}">🔎 크게보기</button>
+
+      <button type="button" class="qa-pill-btn qa-share-kakao"
+        data-act="kakao"
+        data-q="${escapeHTML(q)}"
+        data-a="${escapeHTML(a)}">💬 카톡공유</button>
+
+      <button type="button" class="qa-pill-btn"
+        data-act="copy"
+        data-full="${escapeHTML(`❓ 질문\n${q}\n\n💡 답변\n${a}`)}">📋 복사하기</button>
+
+      <button type="button" class="qa-pill-btn"
+        data-act="email"
+        data-q="${escapeHTML(q)}"
+        data-a="${escapeHTML(a)}"
+        data-meta="${escapeHTML(metaText)}">✉️ 메일보내기</button>
+    </div>
+  `;
+}
+
 /**
  * item: { question, answer, createdAt?, meta?{tLabel?} }
  * options: { mode: "append"|"prepend"|"replace" }
@@ -72,6 +101,10 @@ export function renderQA(containerEl, item, options = {}) {
   const wrapper = document.createElement("div");
   wrapper.className = "aiqoo-qa-item";
 
+  // ✅ 액션바를 답변 위/아래 모두 배치 + 우측 정렬
+  const actionsTop = actionBarHTML({ q, a, metaText });
+  const actionsBottom = actionBarHTML({ q, a, metaText });
+
   wrapper.innerHTML = `
     <div class="aiqoo-qa-row aiqoo-qa-question">
       <span class="aiqoo-qa-icon" aria-hidden="true">❓</span>
@@ -80,33 +113,15 @@ export function renderQA(containerEl, item, options = {}) {
 
     <div class="aiqoo-qa-row aiqoo-qa-answer">
       <span class="aiqoo-qa-icon" aria-hidden="true">💡</span>
-      <div class="aiqoo-qa-text aiqoo-qa-answer-text">${formatAnswerToHTML(a)}</div>
+      <div class="aiqoo-qa-text aiqoo-qa-answer-wrap">
+        ${actionsTop}
+        <div class="aiqoo-qa-answer-text">${formatAnswerToHTML(a)}</div>
+        ${actionsBottom}
+      </div>
     </div>
 
-    <div class="mt-3 flex flex-wrap gap-2 items-center">
-      <button type="button" class="qa-pill-btn qa-answer-zoombtn"
-        data-act="zoom"
-        data-a="${escapeHTML(a)}"
-        data-meta="${escapeHTML(metaText)}">🔎 크게보기</button>
-
-      <button type="button" class="qa-pill-btn qa-share-kakao"
-        data-act="kakao"
-        data-q="${escapeHTML(q)}"
-        data-a="${escapeHTML(a)}">💬 카톡공유</button>
-
-      <button type="button" class="qa-pill-btn"
-        data-act="copy"
-        data-full="${escapeHTML(`❓ 질문\n${q}\n\n💡 답변\n${a}`)}">📋 복사하기</button>
-
-      <button type="button" class="qa-pill-btn"
-        data-act="email"
-        data-q="${escapeHTML(q)}"
-        data-a="${escapeHTML(a)}"
-        data-meta="${escapeHTML(metaText)}">✉️ 메일보내기</button>
-
-      <span class="ml-auto text-[11px] font-semibold text-zinc-500 whitespace-nowrap">
-        ${escapeHTML(metaText)}
-      </span>
+    <div class="mt-2 text-right text-[11px] font-semibold text-zinc-500 whitespace-nowrap">
+      ${escapeHTML(metaText)}
     </div>
   `;
 
@@ -118,11 +133,11 @@ export function renderQA(containerEl, item, options = {}) {
 
 export function renderQAList(containerEl, items = []) {
   clearQA(containerEl);
-
   const list = getListContainer(containerEl);
   if (!list) return;
 
+  // items는 "최신 -> 과거" 순서라고 가정
   for (const it of items) {
-    renderQA(list, it, { mode: "append" }); // items가 이미 최신->과거 순서라고 가정
+    renderQA(list, it, { mode: "append" });
   }
 }
