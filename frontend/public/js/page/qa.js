@@ -3,16 +3,14 @@ import { createLectureStore } from "/js/core/store.js";
 import { askQA } from "/js/service/api.service.js";
 import { createPlayerService } from "/js/service/player.service.js";
 import { shareKakao } from "/js/service/share.service.js";
-import { openAnswerModal } from "/js/ui/modal.view.js";
 import {
-  renderQA,
-  renderQAList,
-  clearQA,
+  openAnswerModal,
   confirmDeleteModal,
   showAnswerProgressModal,
   updateAnswerProgressModal,
   hideAnswerProgressModal,
-} from "/js/ui/qa.view.js";
+} from "/js/ui/modal.view.js";
+import { renderQA, renderQAList, clearQA } from "/js/ui/qa.view.js";
 import { normalizeText, formatTime } from "/js/util/utils.js";
 
 const $ = (sel) => document.querySelector(sel);
