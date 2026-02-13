@@ -8,14 +8,32 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="/css/qa.css" />
 
-  <!-- ✅ Kakao JavaScript SDK (카카오톡 공유용) -->
+  <!-- ✅ Kakao JavaScript SDK -->
   <script src="https://t1.kakaocdn.net/kakao_js_sdk/2.7.2/kakao.min.js"></script>
 </head>
 
-<!-- ✅ (선택) 카카오 JS 키를 여기에 넣거나, localStorage AIQOO_KAKAO_KEY로 넣어도 됩니다. -->
-<body data-kakao-key="4632c8134c3d32664cbef8f20b497882" class="relative flex h-full flex-col overflow-hidden bg-[#0c0c0e] text-zinc-50 antialiased">
+<body data-kakao-key="4632c8134c3d32664cbef8f20b497882"
+  class="relative flex h-full flex-col overflow-hidden bg-[#0c0c0e] text-zinc-50 antialiased">
 
-  <!-- ✅ 최초 진입 시 기본 표시(= hidden 제거) -->
+  <!-- ✅ Kakao.init 강제(한 번만) -->
+  <script>
+    (function () {
+      try {
+        const key = (document.body?.dataset?.kakaoKey || "").trim();
+        if (!key) return;
+
+        if (window.Kakao && typeof window.Kakao.isInitialized === "function") {
+          if (!window.Kakao.isInitialized()) window.Kakao.init(key);
+        } else if (window.Kakao && typeof window.Kakao.init === "function") {
+          window.Kakao.init(key);
+        }
+      } catch (e) {
+        console.warn("[qa.html] Kakao init failed:", e);
+      }
+    })();
+  </script>
+
+  <!-- ✅ 최초 진입 오버레이 -->
   <div id="playOverlay" class="qa-overlay" aria-hidden="false">
     <div class="qa-overlay-dim"></div>
 
@@ -33,7 +51,7 @@
     </button>
   </div>
 
-  <!-- ✅ 답변 크게보기 모달 (전체화면) -->
+  <!-- ✅ 답변 크게보기 모달 -->
   <div id="answerModal" class="hidden" aria-hidden="true">
     <div data-close="1" class="qa-answer-modal-dim"></div>
 
@@ -129,7 +147,7 @@
     ⬆ TOP
   </button>
 
-  <!-- ✅ 중요: 모듈로 로드 -->
+  <!-- ✅ 모듈 로드 -->
   <script type="module" src="/js/qa.js"></script>
 </body>
 </html>
