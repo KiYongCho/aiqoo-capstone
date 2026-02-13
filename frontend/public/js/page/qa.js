@@ -10,32 +10,36 @@ import { renderQA, renderQAList, clearQA } from "/js/ui/qa.view.js";
 
 const $ = (sel) => document.querySelector(sel);
 
-const el = {
-  overlay: $("#playOverlay"),
-  overlayBtn: $("#overlayBtn"),
+let el = {}; // ✅ DOM을 init에서 다시 잡습니다.
 
-  hint: $("#hintLabel"),
-  voiceBtn: $("#voiceBtn"),
-  submitBtn: $("#submitBtn"),
-  voiceStatus: $("#voiceStatus"),
-  input: $("#questionInput"),
+function bindDom() {
+  el = {
+    overlay: $("#playOverlay"),
+    overlayBtn: $("#overlayBtn"),
 
-  listWrap: $("#qaList"),
-  empty: $("#qaEmpty"),
+    hint: $("#hintLabel"),
+    voiceBtn: $("#voiceBtn"),
+    submitBtn: $("#submitBtn"),
+    voiceStatus: $("#voiceStatus"),
+    input: $("#questionInput"),
 
-  chips: $("#exampleChips"),
-  resetWrap: $("#resetWrap"),
-  resetBtn: $("#resetBtn"),
+    listWrap: $("#qaList"),
+    empty: $("#qaEmpty"),
 
-  resetModal: $("#resetModal"),
-  resetCancel: $("#resetModalCancel"),
-  resetConfirm: $("#resetModalConfirm"),
+    chips: $("#exampleChips"),
+    resetWrap: $("#resetWrap"),
+    resetBtn: $("#resetBtn"),
 
-  toTop: $("#toTopBtn"),
+    resetModal: $("#resetModal"),
+    resetCancel: $("#resetModalCancel"),
+    resetConfirm: $("#resetModalConfirm"),
 
-  videoKeyLabel: $("#videoKeyLabel"),
-  providerLabel: $("#providerLabel"),
-};
+    toTop: $("#toTopBtn"),
+
+    videoKeyLabel: $("#videoKeyLabel"),
+    providerLabel: $("#providerLabel"),
+  };
+}
 
 function showOverlay() {
   el.overlay?.classList.remove("hidden");
@@ -47,17 +51,17 @@ function hideOverlay() {
 }
 
 function lockUI(msg) {
-  el.voiceBtn.disabled = true;
-  el.submitBtn.disabled = true;
-  el.input.disabled = true;
-  el.hint.textContent = msg || "📺 영상 재생 중입니다.";
+  if (el.voiceBtn) el.voiceBtn.disabled = true;
+  if (el.submitBtn) el.submitBtn.disabled = true;
+  if (el.input) el.input.disabled = true;
+  if (el.hint) el.hint.textContent = msg || "📺 영상 재생 중입니다.";
 }
 
 function unlockUI(msg) {
-  el.voiceBtn.disabled = false;
-  el.submitBtn.disabled = false;
-  el.input.disabled = false;
-  el.hint.textContent = msg || "📢 AIQOO에게 질문하세요!";
+  if (el.voiceBtn) el.voiceBtn.disabled = false;
+  if (el.submitBtn) el.submitBtn.disabled = false;
+  if (el.input) el.input.disabled = false;
+  if (el.hint) el.hint.textContent = msg || "📢 AIQOO에게 질문하세요!";
 }
 
 function toast(msg) {
@@ -97,8 +101,8 @@ let lastTimeInfo = { t: 0, tLabel: "00:00", provider: "", youtubeId: "" };
 const store = createLectureStore(() => meta.videoKey || "default");
 
 function applyMetaUI() {
-  el.videoKeyLabel.textContent = meta.videoKey || "default";
-  el.providerLabel.textContent = meta.provider ? `(${meta.provider})` : "";
+  if (el.videoKeyLabel) el.videoKeyLabel.textContent = meta.videoKey || "default";
+  if (el.providerLabel) el.providerLabel.textContent = meta.provider ? `(${meta.provider})` : "";
 }
 
 function syncUI() {
@@ -125,7 +129,7 @@ function sanitizeItems(items) {
   for (const it of items || []) {
     const q = normalizeText(it?.question || "");
     const a = normalizeText(it?.answer || "");
-    if (!q || !a) continue; // ✅ 빈 항목 스킵
+    if (!q || !a) continue;
     cleaned.push({ ...it, question: q, answer: a });
   }
   return cleaned;
@@ -135,28 +139,25 @@ function loadHistory() {
   const raw = store.load();
   const items = sanitizeItems(raw);
 
-  // ✅ 만약 빈 항목이 저장소에 있었으면 정리해서 다시 저장
   if ((raw?.length || 0) !== items.length) {
     store.save(items);
   }
 
   if (!items.length) {
-    el.empty.classList.remove("hidden");
-    el.resetWrap.classList.add("hidden");
+    el.empty?.classList.remove("hidden");
+    el.resetWrap?.classList.add("hidden");
     clearQA(el.listWrap);
     return;
   }
 
-  el.empty.classList.add("hidden");
-  el.resetWrap.classList.remove("hidden");
+  el.empty?.classList.add("hidden");
+  el.resetWrap?.classList.remove("hidden");
   renderQAList(el.listWrap, items);
 }
 
 function appendHistory(question, answer, timeInfo) {
   const q = normalizeText(question);
   const a = normalizeText(answer);
-
-  // ✅ 저장 단계에서도 빈 값 방지
   if (!q || !a) return;
 
   const items = sanitizeItems(store.load());
@@ -178,26 +179,45 @@ function appendHistory(question, answer, timeInfo) {
   store.save(items);
 }
 
+/**
+ * ✅ 여기만이 핵심: "질문 시작하기"가 반드시 먹게
+ * - notifyPause() 유지
+ * - fallback으로 parent.postMessage(qaFocus)도 같이 쏩니다.
+ */
 async function startQuestionMode() {
   qaActive = true;
-  player.notifyPause();
 
+  // 1) 기존 서비스 호출 유지
+  try {
+    player.notifyPause();
+  } catch (e) {
+    console.warn("[qa.js] player.notifyPause failed:", e);
+  }
+
+  // 2) ✅ fallback: 부모가 qaFocus를 듣는다면 이것만으로도 동작
+  try {
+    window.parent?.postMessage({ type: "qaFocus" }, "*");
+  } catch (e) {
+    console.warn("[qa.js] parent.postMessage failed:", e);
+  }
+
+  // UX 즉시 반영
   hideOverlay();
   lockUI("⏸️ 영상 정지 중...");
 
-  try { el.input.focus(); } catch (_) {}
+  try { el.input?.focus(); } catch (_) {}
 }
 
 async function handleAsk() {
-  const q = normalizeText(el.input.value);
+  const q = normalizeText(el.input?.value || "");
   if (!q) return;
-  if (el.submitBtn.disabled) return;
+  if (el.submitBtn?.disabled) return;
 
   el.submitBtn.disabled = true;
   el.voiceBtn.disabled = true;
 
   try {
-    el.voiceStatus.textContent = "🧠 답변 생성 중...";
+    if (el.voiceStatus) el.voiceStatus.textContent = "🧠 답변 생성 중...";
 
     const timeInfo = await player.requestTime();
     lastTimeInfo = timeInfo || lastTimeInfo;
@@ -214,16 +234,14 @@ async function handleAsk() {
 
     const a = normalizeText(answer);
 
-    // ✅ 빈 답변 방지(안전장치)
     if (!a) {
-      el.voiceStatus.textContent = "❗ 빈 답변이 반환되었습니다.";
+      if (el.voiceStatus) el.voiceStatus.textContent = "❗ 빈 답변이 반환되었습니다.";
       return;
     }
 
-    el.empty.classList.add("hidden");
-    el.resetWrap.classList.remove("hidden");
+    el.empty?.classList.add("hidden");
+    el.resetWrap?.classList.remove("hidden");
 
-    // renderQA 자체도 빈값이면 false 반환
     renderQA(el.listWrap, {
       question: q,
       answer: a,
@@ -233,13 +251,13 @@ async function handleAsk() {
 
     appendHistory(q, a, lastTimeInfo);
 
-    el.input.value = "";
-    el.voiceStatus.textContent = "✅ 완료";
+    if (el.input) el.input.value = "";
+    if (el.voiceStatus) el.voiceStatus.textContent = "✅ 완료";
 
     try { el.listWrap.scrollTop = el.listWrap.scrollHeight; } catch (_) {}
   } catch (err) {
     console.error(err);
-    el.voiceStatus.textContent = `❗ 실패: ${err?.message || "오류"}`;
+    if (el.voiceStatus) el.voiceStatus.textContent = `❗ 실패: ${err?.message || "오류"}`;
   } finally {
     el.submitBtn.disabled = false;
     el.voiceBtn.disabled = false;
@@ -247,11 +265,18 @@ async function handleAsk() {
 }
 
 function bindEvents() {
-  el.overlayBtn?.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    startQuestionMode();
-  });
+  // ✅ overlay 버튼 바인딩이 안되면 바로 알 수 있게
+  if (!el.overlayBtn) {
+    console.warn("[qa.js] overlayBtn not found (#overlayBtn).");
+  } else {
+    el.overlayBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      startQuestionMode();
+    });
+  }
+
+  // dim 포함 overlay 영역 클릭도 처리
   el.overlay?.addEventListener("click", (e) => {
     e.preventDefault();
     startQuestionMode();
@@ -268,31 +293,31 @@ function bindEvents() {
   el.chips?.addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-example]");
     if (!btn) return;
-    el.input.value = btn.getAttribute("data-example") || "";
-    try { el.input.focus(); } catch (_) {}
+    if (el.input) el.input.value = btn.getAttribute("data-example") || "";
+    try { el.input?.focus(); } catch (_) {}
   });
 
   el.resetBtn?.addEventListener("click", () => {
-    el.resetModal.classList.remove("hidden");
-    el.resetModal.classList.add("flex");
-    el.resetModal.setAttribute("aria-hidden", "false");
+    el.resetModal?.classList.remove("hidden");
+    el.resetModal?.classList.add("flex");
+    el.resetModal?.setAttribute("aria-hidden", "false");
   });
 
   el.resetCancel?.addEventListener("click", () => {
-    el.resetModal.classList.add("hidden");
-    el.resetModal.classList.remove("flex");
-    el.resetModal.setAttribute("aria-hidden", "true");
+    el.resetModal?.classList.add("hidden");
+    el.resetModal?.classList.remove("flex");
+    el.resetModal?.setAttribute("aria-hidden", "true");
   });
 
   el.resetConfirm?.addEventListener("click", () => {
     store.clear();
     clearQA(el.listWrap);
-    el.empty.classList.remove("hidden");
-    el.resetWrap.classList.add("hidden");
+    el.empty?.classList.remove("hidden");
+    el.resetWrap?.classList.add("hidden");
 
-    el.resetModal.classList.add("hidden");
-    el.resetModal.classList.remove("flex");
-    el.resetModal.setAttribute("aria-hidden", "true");
+    el.resetModal?.classList.add("hidden");
+    el.resetModal?.classList.remove("flex");
+    el.resetModal?.setAttribute("aria-hidden", "true");
   });
 
   el.toTop?.addEventListener("click", () => {
@@ -332,7 +357,12 @@ function bindEvents() {
       const q = kakao.getAttribute("data-q") || "";
       const a = kakao.getAttribute("data-a") || "";
       try {
-        const { copied } = await shareKakao({ question: q, answer: a, shareUrl: window.location.href, autoCopyFullText: true });
+        const { copied } = await shareKakao({
+          question: q,
+          answer: a,
+          shareUrl: window.location.href,
+          autoCopyFullText: true
+        });
         if (copied) toast("📋 전체 문장 복사됨 (카카오는 요약 전송)");
         else toast("ℹ️ 카카오는 요약 전송");
       } catch (err) {
@@ -345,10 +375,10 @@ function bindEvents() {
 
 function bindSTT() {
   const stt = createSTTService(
-    (msg) => (el.voiceStatus.textContent = msg || ""),
+    (msg) => { if (el.voiceStatus) el.voiceStatus.textContent = msg || ""; },
     (text) => {
-      el.input.value = normalizeText(text || "");
-      try { el.input.focus(); } catch (_) {}
+      if (el.input) el.input.value = normalizeText(text || "");
+      try { el.input?.focus(); } catch (_) {}
     }
   );
 
@@ -368,12 +398,13 @@ function bindSTT() {
       console.error(err);
       el.voiceBtn.dataset.state = "";
       el.voiceBtn.textContent = "🎤 음성 질문";
-      el.voiceStatus.textContent = "❗ 마이크 권한 또는 녹음 시작 실패";
+      if (el.voiceStatus) el.voiceStatus.textContent = "❗ 마이크 권한 또는 녹음 시작 실패";
     }
   });
 }
 
 function bindParentMessages() {
+  // qa iframe 준비 완료 알림
   try { window.parent?.postMessage({ type: "qaReady" }, "*"); } catch (_) {}
 
   player.onMessage((msg) => {
@@ -415,6 +446,7 @@ function bindParentMessages() {
 }
 
 function init() {
+  bindDom();            // ✅ DOM을 여기서 확실히 잡음
   showOverlay();
   lockUI("📺 영상 상태 확인 중...");
 
@@ -427,4 +459,9 @@ function init() {
   syncUI();
 }
 
-init();
+// ✅ 환경 차이를 없애기 위해 DOM 준비 후 init 보장
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init, { once: true });
+} else {
+  init();
+}
