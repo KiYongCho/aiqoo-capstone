@@ -4,10 +4,18 @@ import { askQA } from "/js/service/api.service.js";
 import { createPlayerService } from "/js/service/player.service.js";
 import { shareKakao } from "/js/service/share.service.js";
 import { openAnswerModal } from "/js/ui/modal.view.js";
-import { renderQA, renderQAList, clearQA } from "/js/ui/qa.view.js";
+import {
+  renderQA,
+  renderQAList,
+  clearQA,
+  confirmDeleteModal,
+  showAnswerProgressModal,
+  updateAnswerProgressModal,
+  hideAnswerProgressModal,
+} from "/js/ui/qa.view.js";
 import { normalizeText, formatTime } from "/js/util/utils.js";
 
-const $ = (sel) => document.querySelector(sel); 
+const $ = (sel) => document.querySelector(sel);
 
 const el = {
   overlay: $("#playOverlay"),
@@ -77,7 +85,8 @@ function toMailto({ subject, body }) {
   const MAX = 1800;
   const bodySafe =
     b.length > MAX
-      ? b.slice(0, MAX) + encodeURIComponent("\n\n(이하 내용은 길이 제한으로 생략되었습니다)")
+      ? b.slice(0, MAX) +
+        encodeURIComponent("\n\n(이하 내용은 길이 제한으로 생략되었습니다)")
       : b;
 
   return `mailto:?subject=${s}&body=${bodySafe}`;
@@ -224,13 +233,19 @@ async function startQuestionMode() {
   qaActive = true;
 
   // pause 요청 + fallback
-  try { player.notifyPause(); } catch (_) {}
-  try { window.parent?.postMessage({ type: "qaFocus" }, "*"); } catch (_) {}
+  try {
+    player.notifyPause();
+  } catch (_) {}
+  try {
+    window.parent?.postMessage({ type: "qaFocus" }, "*");
+  } catch (_) {}
 
   hideOverlay();
   lockUI("⏸️ 영상 정지 중...");
 
-  try { el.input.focus(); } catch (_) {}
+  try {
+    el.input.focus();
+  } catch (_) {}
 }
 
 async function handleAsk() {
@@ -243,10 +258,18 @@ async function handleAsk() {
   // ✅ 여기부터 “답변 표시 전까지 잠금”
   setBusy(true, "답변 생성 중...");
 
+  // ✅ [추가] 진행상태 모달 표시
+  showAnswerProgressModal({
+    title: "답변 생성 중…",
+    message: "질문을 분석하고 있습니다.",
+  });
+
   try {
+    updateAnswerProgressModal({ message: "영상 시간을 확인하고 있습니다…" });
     const timeInfo = await player.requestTime();
     lastTimeInfo = timeInfo || lastTimeInfo;
 
+    updateAnswerProgressModal({ message: "AI가 답변을 작성 중입니다…" });
     const answer = await askQA({
       question: q,
       videoKey: meta.videoKey,
@@ -257,6 +280,7 @@ async function handleAsk() {
       tLabel: lastTimeInfo.tLabel,
     });
 
+    updateAnswerProgressModal({ message: "답변을 정리하고 화면에 표시합니다…" });
     const a = normalizeText(answer);
 
     if (!a) {
@@ -282,11 +306,17 @@ async function handleAsk() {
     el.input.value = "";
 
     // 최신 상단이므로 스크롤 위로
-    try { el.listWrap.scrollTop = 0; } catch (_) {}
+    try {
+      el.listWrap.scrollTop = 0;
+    } catch (_) {}
   } catch (err) {
     console.error(err);
-    if (el.voiceStatus) el.voiceStatus.textContent = `❗ 실패: ${err?.message || "오류"}`;
+    if (el.voiceStatus)
+      el.voiceStatus.textContent = `❗ 실패: ${err?.message || "오류"}`;
   } finally {
+    // ✅ [추가] 진행상태 모달 종료
+    hideAnswerProgressModal();
+
     // ✅ 답변이 화면에 반영된 이후에 다시 활성화
     setBusy(false);
   }
@@ -310,7 +340,6 @@ function bindEvents() {
       handleAsk();
     }
   });
-
 
   // ✅ 버튼 UI 제거: Enter로 전송(Shift+Enter 줄바꿈)
 
@@ -339,8 +368,11 @@ function bindEvents() {
 
   // TOP 버튼
   el.toTop?.addEventListener("click", () => {
-    try { el.listWrap.scrollTo({ top: 0, behavior: "smooth" }); }
-    catch { el.listWrap.scrollTop = 0; }
+    try {
+      el.listWrap.scrollTo({ top: 0, behavior: "smooth" });
+    } catch {
+      el.listWrap.scrollTop = 0;
+    }
   });
 
   el.listWrap?.addEventListener("scroll", () => {
@@ -396,8 +428,7 @@ function bindEvents() {
       const a = email.getAttribute("data-a") || "";
       const metaText = email.getAttribute("data-meta") || "";
       const subject = `[AIQOO 답변] ${q.slice(0, 60)}${q.length > 60 ? "…" : ""}`;
-      const body =
-`❓ 질문
+      const body = `❓ 질문
 ${q}
 
 답변
@@ -414,34 +445,55 @@ ${metaText ? `(${metaText})\n` : ""}공유 링크: ${window.location.href}`;
       return;
     }
 
+    // ✅ [변경] 삭제 클릭 → 확인 모달 → 삭제 수행
     const del = e.target.closest('[data-act="delete"]');
     if (del) {
-      const card = e.target.closest('.aiqoo-qa-item');
+      const card = e.target.closest(".aiqoo-qa-item");
       const id = card?.dataset?.id;
 
-      const items = sanitizeItems(store.load());
-      const next = id ? items.filter(it => String(it?.id || "") !== String(id)) : items.filter(it => {
-        const qq = normalizeText(it?.question || "");
-        const aa = normalizeText(it?.answer || "");
-        return !(qq === normalizeText(del.getAttribute('data-q') || "") && aa === normalizeText(del.getAttribute('data-a') || ""));
+      const q = del.getAttribute("data-q") || "";
+      const a = del.getAttribute("data-a") || "";
+      const metaText = del.getAttribute("data-meta") || "";
+
+      const ok = await confirmDeleteModal({
+        q,
+        a,
+        metaText,
       });
+
+      if (!ok) return;
+
+      const items = sanitizeItems(store.load());
+
+      const next = id
+        ? items.filter((it) => String(it?.id || "") !== String(id))
+        : items.filter((it) => {
+            const qq = normalizeText(it?.question || "");
+            const aa = normalizeText(it?.answer || "");
+            return !(
+              qq === normalizeText(q) && aa === normalizeText(a)
+            );
+          });
 
       store.save(next);
       card?.remove();
 
       // 비었으면 empty UI 복원
       if (!next.length) {
-        el.empty?.classList.remove('hidden');
-        el.resetWrap?.classList.add('hidden');
+        el.empty?.classList.remove("hidden");
+        el.resetWrap?.classList.add("hidden");
       }
-      toast('🗑️ 삭제됨');
+
+      toast("🗑️ 삭제됨");
       return;
     }
   });
 }
 
 function bindParentMessages() {
-  try { window.parent?.postMessage({ type: "qaReady" }, "*"); } catch (_) {}
+  try {
+    window.parent?.postMessage({ type: "qaReady" }, "*");
+  } catch (_) {}
 
   player.onMessage((msg) => {
     if (!msg?.type) return;
