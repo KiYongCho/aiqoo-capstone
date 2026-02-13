@@ -6,7 +6,7 @@
  *   - 마크다운 렌더링 + 코드블록 스타일
  */
 
-import { renderMarkdownSafe, bindMarkdownCopyButtons } from "./markdown.util.js";
+import { renderMarkdownSafe, bindMarkdownCopyButtons } from "/js/util/markdown.util.js";
 
 function ensureModalStyles() {
   if (document.getElementById("aiqoo-modal-style")) return;
