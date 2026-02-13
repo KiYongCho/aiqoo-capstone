@@ -136,7 +136,7 @@
   }
   
   /* ==============================
-     ✅ iframe 내부 스크롤 안정화
+     ✅ iframe 내부 스크롤 안정화 (기본)
      ============================== */
   html, body { height: 100%; }
   #qaList { min-height: 0; }
@@ -248,7 +248,7 @@
   }
   
   /* ==============================
-     ✅ 답변 크게보기: 브라우저 전체화면 모달
+     ✅ 답변 크게보기: 브라우저 전체화면 모달(구버전 호환)
      ============================== */
   .qa-modal-open { overflow: hidden !important; }
   
@@ -331,126 +331,130 @@
     white-space: pre-wrap;
   }
   
-  /* aiqoo qa compact UI */
-.aiqoo-qa-item {
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: #111827;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-/* Q/A row */
-.aiqoo-qa-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 0;          /* 빈 줄 원인 제거 */
-  padding: 0;         /* 빈 줄 원인 제거 */
-}
-
-/* 질문: 컬러 강조 */
-.aiqoo-qa-question {
-  color: #facc15;
-  font-weight: 700;
-}
-
-/* 답변: 질문과 너무 멀어지지 않게 */
-.aiqoo-qa-answer {
-  color: #e5e7eb;
-  margin-top: 6px;    /* 딱 필요한 만큼만 */
-}
-
-/* 아이콘: 색상 있는 이모지는 그대로 */
-.aiqoo-qa-icon {
-  font-size: 18px;
-  line-height: 1.2;
-  margin-top: 2px;
-}
-
-/* 텍스트: 줄간격 타이트 */
-.aiqoo-qa-text {
-  margin: 0;          /* p/div 기본 margin 제거 */
-  line-height: 1.5;
-  word-break: break-word;
-}
-
-/* 답변 내부 <br> 처리 시 과도한 여백 방지 */
-.aiqoo-qa-answer-text br {
-  line-height: 1.5;
-}
-
-/* ✅ hidden이 동작하지 않는 케이스 방지 */
-.hidden {
-  display: none !important;
-}
-
-/* 우측 패널이 overlay 아래로 깔리는 문제 방지 */
-#aiqooRightPanel,
-.aiqoo-right-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  height: 100vh;
-  width: 420px;
-  z-index: 999999;
-}
-
-/* Q/A compact UI */
-.aiqoo-qa-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  overflow-y: auto;
-  height: 100%;
-  box-sizing: border-box;
-}
-
-.aiqoo-qa-item {
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: #111827;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.aiqoo-qa-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-}
-
-.aiqoo-qa-question {
-  color: #facc15;
-  font-weight: 700;
-}
-
-.aiqoo-qa-answer {
-  color: #e5e7eb;
-  margin-top: 6px;
-}
-
-.aiqoo-qa-icon {
-  font-size: 18px;
-  line-height: 1.2;
-  margin-top: 2px;
-}
-
-.aiqoo-qa-text {
-  margin: 0;
-  line-height: 1.5;
-  word-break: break-word;
-}
-
-/* ✅ 크게보기(모달) 우측영역(iframe) 전체 덮기 보강 */
-.aiqoo-modal-overlay {
-  padding: 0 !important;
-  align-items: stretch !important;
-  justify-content: stretch !important;
-}
-.aiqoo-modal {
-  width: 100% !important;
-  height: 100% !important;
-  border-radius: 0 !important;
-}
+  /* ==============================
+     ✅ Q/A compact UI (카드)
+     ============================== */
+  .aiqoo-qa-item {
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #111827;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  
+  /* Q/A row */
+  .aiqoo-qa-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+  }
+  
+  /* 질문 */
+  .aiqoo-qa-question {
+    color: #facc15;
+    font-weight: 700;
+  }
+  
+  /* 답변 */
+  .aiqoo-qa-answer {
+    color: #e5e7eb;
+    margin-top: 6px;
+  }
+  
+  .aiqoo-qa-icon {
+    font-size: 18px;
+    line-height: 1.2;
+    margin-top: 2px;
+  }
+  
+  .aiqoo-qa-text {
+    margin: 0;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+  
+  /* 답변 내부 <br> 과도한 여백 방지 */
+  .aiqoo-qa-answer-text br {
+    line-height: 1.5;
+  }
+  
+  /* ✅ hidden이 동작하지 않는 케이스 방지 */
+  .hidden {
+    display: none !important;
+  }
+  
+  /* 우측 패널 규칙(기존 유지) */
+  #aiqooRightPanel,
+  .aiqoo-right-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    height: 100vh;
+    width: 420px;
+    z-index: 999999;
+  }
+  
+  /* ✅ 목록 컨테이너 (중요: 2중 스크롤 제거) */
+  .aiqoo-qa-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    box-sizing: border-box;
+  
+    /* ✅ 기존 파일은 여기서 height:100% + overflow:auto 로 “내부 스크롤”을 만들어서
+       모바일에서 답변이 안 보이는 케이스가 발생합니다.
+       → 외부(#qaList)가 스크롤을 담당하도록 내부는 자연 흐름으로 둡니다. */
+    height: auto;
+    overflow: visible;
+  }
+  
+  /* ==============================
+     ✅ 모바일: 세로 제한 해제(답변이 반드시 보이도록)
+     ============================== */
+  @media (max-width: 768px) {
+    /* iOS/모바일 주소창/키보드 대응 */
+    html, body {
+      height: auto !important;
+      min-height: 100dvh;
+    }
+  
+    /* qa.html body는 class로 overflow-hidden이 걸려있으니 강제로 풀어줌 */
+    body {
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+    }
+  
+    /* 모바일에서는 내부 스크롤 컨테이너를 없애고 “페이지 스크롤”로 자연스럽게 보여주기 */
+    #qaList {
+      min-height: auto !important;
+      height: auto !important;
+      max-height: none !important;
+      overflow: visible !important;
+      flex: initial !important;
+    }
+  
+    .aiqoo-qa-list {
+      height: auto !important;
+      max-height: none !important;
+      overflow: visible !important;
+    }
+  
+    /* 오버레이가 absolute면 모바일에서 높이 계산이 꼬일 수 있어 fixed로 */
+    .qa-overlay {
+      position: fixed !important;
+    }
+  
+    /* 우측 패널 규칙이 모바일을 가리는 경우 방지 */
+    #aiqooRightPanel,
+    .aiqoo-right-panel {
+      width: 100vw !important;
+      height: auto !important;
+      min-height: 100dvh;
+      position: relative !important;
+      top: auto !important;
+      right: auto !important;
+    }
+  }
+  
