@@ -442,3 +442,15 @@
   line-height: 1.5;
   word-break: break-word;
 }
+
+/* ✅ 크게보기(모달) 우측영역(iframe) 전체 덮기 보강 */
+.aiqoo-modal-overlay {
+  padding: 0 !important;
+  align-items: stretch !important;
+  justify-content: stretch !important;
+}
+.aiqoo-modal {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+}
