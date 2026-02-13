@@ -10,8 +10,8 @@ import { askQA } from "/js/service/api.service.js";
 import { createPlayerService } from "/js/service/player.service.js";
 import { createSTTService } from "/js/service/stt.service.js";
 import { shareKakao } from "/js/service/share.service.js";
-import { openAnswerModal } from "/js/view/modal.view.js";
-import { renderQA, clearQA, renderQAList } from "/js/view/qa.view.js";
+import { openAnswerModal } from "/js/ui/modal.view.js";
+import { renderQA, clearQA, renderQAList } from "/js/ui/qa.view.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
