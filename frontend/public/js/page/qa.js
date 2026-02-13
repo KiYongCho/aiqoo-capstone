@@ -1,4 +1,4 @@
-// qa.js
+// /js/qa.js
 import { askQA } from "/js/service/api.service.js";
 import { createLectureStore } from "/js/core/store.js";
 import { normalizeText, formatTime } from "/js/core/utils.js";
@@ -10,36 +10,32 @@ import { renderQA, renderQAList, clearQA } from "/js/ui/qa.view.js";
 
 const $ = (sel) => document.querySelector(sel);
 
-let el = {}; // ✅ DOM을 init에서 다시 잡습니다.
+const el = {
+  overlay: $("#playOverlay"),
+  overlayBtn: $("#overlayBtn"),
 
-function bindDom() {
-  el = {
-    overlay: $("#playOverlay"),
-    overlayBtn: $("#overlayBtn"),
+  hint: $("#hintLabel"),
+  voiceBtn: $("#voiceBtn"),
+  submitBtn: $("#submitBtn"),
+  voiceStatus: $("#voiceStatus"),
+  input: $("#questionInput"),
 
-    hint: $("#hintLabel"),
-    voiceBtn: $("#voiceBtn"),
-    submitBtn: $("#submitBtn"),
-    voiceStatus: $("#voiceStatus"),
-    input: $("#questionInput"),
+  listWrap: $("#qaList"),
+  empty: $("#qaEmpty"),
 
-    listWrap: $("#qaList"),
-    empty: $("#qaEmpty"),
+  chips: $("#exampleChips"),
+  resetWrap: $("#resetWrap"),
+  resetBtn: $("#resetBtn"),
 
-    chips: $("#exampleChips"),
-    resetWrap: $("#resetWrap"),
-    resetBtn: $("#resetBtn"),
+  resetModal: $("#resetModal"),
+  resetCancel: $("#resetModalCancel"),
+  resetConfirm: $("#resetModalConfirm"),
 
-    resetModal: $("#resetModal"),
-    resetCancel: $("#resetModalCancel"),
-    resetConfirm: $("#resetModalConfirm"),
+  toTop: $("#toTopBtn"),
 
-    toTop: $("#toTopBtn"),
-
-    videoKeyLabel: $("#videoKeyLabel"),
-    providerLabel: $("#providerLabel"),
-  };
-}
+  videoKeyLabel: $("#videoKeyLabel"),
+  providerLabel: $("#providerLabel"),
+};
 
 function showOverlay() {
   el.overlay?.classList.remove("hidden");
@@ -51,17 +47,17 @@ function hideOverlay() {
 }
 
 function lockUI(msg) {
-  if (el.voiceBtn) el.voiceBtn.disabled = true;
-  if (el.submitBtn) el.submitBtn.disabled = true;
-  if (el.input) el.input.disabled = true;
-  if (el.hint) el.hint.textContent = msg || "📺 영상 재생 중입니다.";
+  el.voiceBtn.disabled = true;
+  el.submitBtn.disabled = true;
+  el.input.disabled = true;
+  el.hint.textContent = msg || "📺 영상 재생 중입니다.";
 }
 
 function unlockUI(msg) {
-  if (el.voiceBtn) el.voiceBtn.disabled = false;
-  if (el.submitBtn) el.submitBtn.disabled = false;
-  if (el.input) el.input.disabled = false;
-  if (el.hint) el.hint.textContent = msg || "📢 AIQOO에게 질문하세요!";
+  el.voiceBtn.disabled = false;
+  el.submitBtn.disabled = false;
+  el.input.disabled = false;
+  el.hint.textContent = msg || "📢 AIQOO에게 질문하세요!";
 }
 
 function toast(msg) {
@@ -84,6 +80,20 @@ function toast(msg) {
   setTimeout(() => t.remove(), 1400);
 }
 
+function toMailto({ subject, body }) {
+  const s = encodeURIComponent(subject || "");
+  const b = encodeURIComponent(body || "");
+
+  // mailto 길이 제한 안전장치
+  const MAX = 1800;
+  const bodySafe =
+    b.length > MAX
+      ? b.slice(0, MAX) + encodeURIComponent("\n\n(이하 내용은 길이 제한으로 생략되었습니다)")
+      : b;
+
+  return `mailto:?subject=${s}&body=${bodySafe}`;
+}
+
 const player = createPlayerService();
 
 let qaActive = false;
@@ -97,12 +107,44 @@ let meta = {
 };
 
 let lastTimeInfo = { t: 0, tLabel: "00:00", provider: "", youtubeId: "" };
-
 const store = createLectureStore(() => meta.videoKey || "default");
 
+// ✅ 요청~응답 사이 입력 잠금 상태
+let busy = false;
+
+function setBusy(flag, label = "답변 생성 중...") {
+  busy = !!flag;
+
+  if (busy) {
+    // ✅ 버튼/입력 비활성화
+    el.voiceBtn.disabled = true;
+    el.submitBtn.disabled = true;
+    el.input.disabled = true;
+
+    // ✅ “돌아가는거(로딩)” 표시 (Tailwind animate-spin 사용)
+    if (el.voiceStatus) {
+      el.voiceStatus.innerHTML = `
+        <span class="inline-flex items-center gap-2">
+          <span class="inline-block h-3 w-3 rounded-full border-2 border-white/25 border-t-white/80 animate-spin"></span>
+          <span class="text-xs tracking-wide text-zinc-400">${label}</span>
+        </span>
+      `;
+    }
+    return;
+  }
+
+  // ✅ 다시 활성화(단, 영상 재생 중이면 lockUI에서 다시 잠글 수 있음)
+  if (!videoPlaying && qaActive) {
+    el.voiceBtn.disabled = false;
+    el.submitBtn.disabled = false;
+    el.input.disabled = false;
+  }
+  if (el.voiceStatus) el.voiceStatus.textContent = "";
+}
+
 function applyMetaUI() {
-  if (el.videoKeyLabel) el.videoKeyLabel.textContent = meta.videoKey || "default";
-  if (el.providerLabel) el.providerLabel.textContent = meta.provider ? `(${meta.provider})` : "";
+  el.videoKeyLabel.textContent = meta.videoKey || "default";
+  el.providerLabel.textContent = meta.provider ? `(${meta.provider})` : "";
 }
 
 function syncUI() {
@@ -135,34 +177,53 @@ function sanitizeItems(items) {
   return cleaned;
 }
 
+function sortNewestFirst(items) {
+  const parsed = items.map((it) => {
+    const s = String(it?.createdAt || "");
+    const d = new Date(s.replace(" ", "T"));
+    const t = Number.isNaN(d.getTime()) ? null : d.getTime();
+    return { it, t };
+  });
+
+  const hasAnyTime = parsed.some((x) => typeof x.t === "number");
+  if (!hasAnyTime) return items;
+
+  return parsed
+    .sort((a, b) => (b.t ?? -Infinity) - (a.t ?? -Infinity))
+    .map((x) => x.it);
+}
+
 function loadHistory() {
   const raw = store.load();
-  const items = sanitizeItems(raw);
+  let items = sanitizeItems(raw);
+  items = sortNewestFirst(items);
 
-  if ((raw?.length || 0) !== items.length) {
+  if (JSON.stringify(raw || []) !== JSON.stringify(items || [])) {
     store.save(items);
   }
 
   if (!items.length) {
-    el.empty?.classList.remove("hidden");
-    el.resetWrap?.classList.add("hidden");
+    el.empty.classList.remove("hidden");
+    el.resetWrap.classList.add("hidden");
     clearQA(el.listWrap);
     return;
   }
 
-  el.empty?.classList.add("hidden");
-  el.resetWrap?.classList.remove("hidden");
+  el.empty.classList.add("hidden");
+  el.resetWrap.classList.remove("hidden");
   renderQAList(el.listWrap, items);
 }
 
 function appendHistory(question, answer, timeInfo) {
   const q = normalizeText(question);
   const a = normalizeText(answer);
+
   if (!q || !a) return;
 
   const items = sanitizeItems(store.load());
 
-  items.push({
+  // ✅ 최신이 상단
+  items.unshift({
     id: crypto?.randomUUID?.() || String(Date.now()),
     createdAt: formatTime(),
     question: q,
@@ -179,46 +240,30 @@ function appendHistory(question, answer, timeInfo) {
   store.save(items);
 }
 
-/**
- * ✅ 여기만이 핵심: "질문 시작하기"가 반드시 먹게
- * - notifyPause() 유지
- * - fallback으로 parent.postMessage(qaFocus)도 같이 쏩니다.
- */
 async function startQuestionMode() {
   qaActive = true;
 
-  // 1) 기존 서비스 호출 유지
-  try {
-    player.notifyPause();
-  } catch (e) {
-    console.warn("[qa.js] player.notifyPause failed:", e);
-  }
+  // pause 요청 + fallback
+  try { player.notifyPause(); } catch (_) {}
+  try { window.parent?.postMessage({ type: "qaFocus" }, "*"); } catch (_) {}
 
-  // 2) ✅ fallback: 부모가 qaFocus를 듣는다면 이것만으로도 동작
-  try {
-    window.parent?.postMessage({ type: "qaFocus" }, "*");
-  } catch (e) {
-    console.warn("[qa.js] parent.postMessage failed:", e);
-  }
-
-  // UX 즉시 반영
   hideOverlay();
   lockUI("⏸️ 영상 정지 중...");
 
-  try { el.input?.focus(); } catch (_) {}
+  try { el.input.focus(); } catch (_) {}
 }
 
 async function handleAsk() {
-  const q = normalizeText(el.input?.value || "");
-  if (!q) return;
-  if (el.submitBtn?.disabled) return;
+  if (busy) return; // ✅ 중복 전송 방지
 
-  el.submitBtn.disabled = true;
-  el.voiceBtn.disabled = true;
+  const q = normalizeText(el.input.value);
+  if (!q) return;
+  if (el.submitBtn.disabled) return;
+
+  // ✅ 여기부터 “답변 표시 전까지 잠금”
+  setBusy(true, "답변 생성 중...");
 
   try {
-    if (el.voiceStatus) el.voiceStatus.textContent = "🧠 답변 생성 중...";
-
     const timeInfo = await player.requestTime();
     lastTimeInfo = timeInfo || lastTimeInfo;
 
@@ -239,50 +284,45 @@ async function handleAsk() {
       return;
     }
 
-    el.empty?.classList.add("hidden");
-    el.resetWrap?.classList.remove("hidden");
+    el.empty.classList.add("hidden");
+    el.resetWrap.classList.remove("hidden");
 
-    renderQA(el.listWrap, {
-      question: q,
-      answer: a,
-      createdAt: formatTime(),
-      meta: { tLabel: lastTimeInfo.tLabel },
-    });
+    // ✅ 최신 답변 상단 표시
+    renderQA(
+      el.listWrap,
+      { question: q, answer: a, createdAt: formatTime(), meta: { tLabel: lastTimeInfo.tLabel } },
+      { mode: "prepend" }
+    );
 
     appendHistory(q, a, lastTimeInfo);
 
-    if (el.input) el.input.value = "";
-    if (el.voiceStatus) el.voiceStatus.textContent = "✅ 완료";
+    el.input.value = "";
 
-    try { el.listWrap.scrollTop = el.listWrap.scrollHeight; } catch (_) {}
+    // 최신 상단이므로 스크롤 위로
+    try { el.listWrap.scrollTop = 0; } catch (_) {}
   } catch (err) {
     console.error(err);
     if (el.voiceStatus) el.voiceStatus.textContent = `❗ 실패: ${err?.message || "오류"}`;
   } finally {
-    el.submitBtn.disabled = false;
-    el.voiceBtn.disabled = false;
+    // ✅ 답변이 화면에 반영된 이후에 다시 활성화
+    setBusy(false);
   }
 }
 
 function bindEvents() {
-  // ✅ overlay 버튼 바인딩이 안되면 바로 알 수 있게
-  if (!el.overlayBtn) {
-    console.warn("[qa.js] overlayBtn not found (#overlayBtn).");
-  } else {
-    el.overlayBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      startQuestionMode();
-    });
-  }
+  el.overlayBtn?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    startQuestionMode();
+  });
 
-  // dim 포함 overlay 영역 클릭도 처리
   el.overlay?.addEventListener("click", (e) => {
     e.preventDefault();
     startQuestionMode();
   });
 
   el.submitBtn?.addEventListener("click", handleAsk);
+
   el.input?.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -293,33 +333,35 @@ function bindEvents() {
   el.chips?.addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-example]");
     if (!btn) return;
-    if (el.input) el.input.value = btn.getAttribute("data-example") || "";
-    try { el.input?.focus(); } catch (_) {}
+    if (busy) return; // ✅ 진행 중엔 예시 클릭도 무시
+    el.input.value = btn.getAttribute("data-example") || "";
+    try { el.input.focus(); } catch (_) {}
   });
 
   el.resetBtn?.addEventListener("click", () => {
-    el.resetModal?.classList.remove("hidden");
-    el.resetModal?.classList.add("flex");
-    el.resetModal?.setAttribute("aria-hidden", "false");
+    el.resetModal.classList.remove("hidden");
+    el.resetModal.classList.add("flex");
+    el.resetModal.setAttribute("aria-hidden", "false");
   });
 
   el.resetCancel?.addEventListener("click", () => {
-    el.resetModal?.classList.add("hidden");
-    el.resetModal?.classList.remove("flex");
-    el.resetModal?.setAttribute("aria-hidden", "true");
+    el.resetModal.classList.add("hidden");
+    el.resetModal.classList.remove("flex");
+    el.resetModal.setAttribute("aria-hidden", "true");
   });
 
   el.resetConfirm?.addEventListener("click", () => {
     store.clear();
     clearQA(el.listWrap);
-    el.empty?.classList.remove("hidden");
-    el.resetWrap?.classList.add("hidden");
+    el.empty.classList.remove("hidden");
+    el.resetWrap.classList.add("hidden");
 
-    el.resetModal?.classList.add("hidden");
-    el.resetModal?.classList.remove("flex");
-    el.resetModal?.setAttribute("aria-hidden", "true");
+    el.resetModal.classList.add("hidden");
+    el.resetModal.classList.remove("flex");
+    el.resetModal.setAttribute("aria-hidden", "true");
   });
 
+  // TOP 버튼
   el.toTop?.addEventListener("click", () => {
     try { el.listWrap.scrollTo({ top: 0, behavior: "smooth" }); }
     catch { el.listWrap.scrollTop = 0; }
@@ -361,7 +403,7 @@ function bindEvents() {
           question: q,
           answer: a,
           shareUrl: window.location.href,
-          autoCopyFullText: true
+          autoCopyFullText: true,
         });
         if (copied) toast("📋 전체 문장 복사됨 (카카오는 요약 전송)");
         else toast("ℹ️ 카카오는 요약 전송");
@@ -369,20 +411,54 @@ function bindEvents() {
         console.error(err);
         toast("❗ 카카오 공유 실패");
       }
+      return;
+    }
+
+    const email = e.target.closest('[data-act="email"]');
+    if (email) {
+      const q = email.getAttribute("data-q") || "";
+      const a = email.getAttribute("data-a") || "";
+      const metaText = email.getAttribute("data-meta") || "";
+      const subject = `[AIQOO 답변] ${q.slice(0, 60)}${q.length > 60 ? "…" : ""}`;
+      const body =
+`❓ 질문
+${q}
+
+💡 답변
+${a}
+
+${metaText ? `(${metaText})\n` : ""}공유 링크: ${window.location.href}`;
+
+      try {
+        window.location.href = toMailto({ subject, body });
+      } catch (err) {
+        console.error(err);
+        toast("❗ 메일 앱 실행 실패");
+      }
     }
   });
 }
 
 function bindSTT() {
   const stt = createSTTService(
-    (msg) => { if (el.voiceStatus) el.voiceStatus.textContent = msg || ""; },
+    (msg) => {
+      // busy 상태에서는 로딩 스피너가 있으니 STT 상태 메시지는 덮어쓰지 않음
+      if (busy) return;
+      el.voiceStatus.textContent = msg || "";
+    },
     (text) => {
-      if (el.input) el.input.value = normalizeText(text || "");
-      try { el.input?.focus(); } catch (_) {}
+      if (busy) return;
+      el.input.value = normalizeText(text || "");
+      try { el.input.focus(); } catch (_) {}
     }
   );
 
   el.voiceBtn?.addEventListener("click", async () => {
+    if (busy) {
+      toast("⏳ 답변 생성 중에는 음성 입력을 사용할 수 없습니다.");
+      return;
+    }
+
     if (el.voiceBtn.dataset.state === "rec") {
       el.voiceBtn.dataset.state = "";
       el.voiceBtn.textContent = "🎤 음성 질문";
@@ -398,13 +474,12 @@ function bindSTT() {
       console.error(err);
       el.voiceBtn.dataset.state = "";
       el.voiceBtn.textContent = "🎤 음성 질문";
-      if (el.voiceStatus) el.voiceStatus.textContent = "❗ 마이크 권한 또는 녹음 시작 실패";
+      el.voiceStatus.textContent = "❗ 마이크 권한 또는 녹음 시작 실패";
     }
   });
 }
 
 function bindParentMessages() {
-  // qa iframe 준비 완료 알림
   try { window.parent?.postMessage({ type: "qaReady" }, "*"); } catch (_) {}
 
   player.onMessage((msg) => {
@@ -446,7 +521,6 @@ function bindParentMessages() {
 }
 
 function init() {
-  bindDom();            // ✅ DOM을 여기서 확실히 잡음
   showOverlay();
   lockUI("📺 영상 상태 확인 중...");
 
@@ -459,9 +533,4 @@ function init() {
   syncUI();
 }
 
-// ✅ 환경 차이를 없애기 위해 DOM 준비 후 init 보장
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", init, { once: true });
-} else {
-  init();
-}
+init();

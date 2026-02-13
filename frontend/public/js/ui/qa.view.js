@@ -1,7 +1,9 @@
-// qa.view.js
-// - ❓/💡 이모지 + 불필요 빈 줄 제거
-// - ✅ 질문/답변이 비어있으면 카드 자체를 렌더링하지 않음(초기 쓸데없는 레이어 제거)
-// - 각 카드에: 🔎 크게보기 / 💬 카카오 / 📋 복사 버튼
+// /js/ui/qa.view.js
+// - 내부 .aiqoo-qa-list에만 렌더
+// - Q/A는 ❓/💡 이모지 표시
+// - 빈 Q/A는 렌더 금지
+// - 액션 버튼: 🔎 크게보기 / 💬 카톡공유 / 📋 복사하기 / ✉️ 메일보내기
+// - 최신이 위로: prepend 지원
 
 function normalizeText(input) {
   return String(input ?? "")
@@ -27,12 +29,14 @@ function formatAnswerToHTML(answerText) {
 function getListContainer(containerEl) {
   if (!containerEl) return null;
 
+  if (containerEl.classList?.contains("aiqoo-qa-list")) return containerEl;
+
   let list = containerEl.querySelector?.(".aiqoo-qa-list");
-  if (!list) {
-    list = document.createElement("div");
-    list.className = "aiqoo-qa-list";
-    containerEl.appendChild(list);
-  }
+  if (list) return list;
+
+  list = document.createElement("div");
+  list.className = "aiqoo-qa-list";
+  containerEl.appendChild(list);
   return list;
 }
 
@@ -42,21 +46,28 @@ export function clearQA(containerEl) {
 }
 
 /**
- * ✅ 빈 Q/A는 렌더링하지 않습니다.
+ * item: { question, answer, createdAt?, meta?{tLabel?} }
+ * options: { mode: "append"|"prepend"|"replace" }
  */
-export function renderQA(containerEl, item) {
+export function renderQA(containerEl, item, options = {}) {
   const list = getListContainer(containerEl);
   if (!list) return false;
+
+  const mode = options.mode || "append";
 
   const q = normalizeText(item?.question);
   const a = normalizeText(item?.answer);
 
-  // ✅ 스샷처럼 아이콘/버튼만 뜨는 "빈 카드" 방지
+  // ✅ 빈 카드 방지
   if (!q || !a) return false;
 
-  const tLabel = item?.meta?.tLabel ? `⏱ ${item.meta.tLabel}` : "";
-  const createdAt = item?.createdAt ? item.createdAt : "";
-  const metaText = [createdAt, tLabel].filter(Boolean).join(" · ");
+  if (mode === "replace") {
+    list.innerHTML = "";
+  }
+
+  const createdAt = normalizeText(item?.createdAt || "");
+  const tLabel = normalizeText(item?.meta?.tLabel || "");
+  const metaText = [createdAt, tLabel ? `⏱ ${tLabel}` : ""].filter(Boolean).join(" · ");
 
   const wrapper = document.createElement("div");
   wrapper.className = "aiqoo-qa-item";
@@ -81,11 +92,17 @@ export function renderQA(containerEl, item) {
       <button type="button" class="qa-pill-btn qa-share-kakao"
         data-act="kakao"
         data-q="${escapeHTML(q)}"
-        data-a="${escapeHTML(a)}">💬 카카오</button>
+        data-a="${escapeHTML(a)}">💬 카톡공유</button>
 
       <button type="button" class="qa-pill-btn"
         data-act="copy"
-        data-full="${escapeHTML(`❓ 질문\n${q}\n\n💡 답변\n${a}`)}">📋 복사</button>
+        data-full="${escapeHTML(`❓ 질문\n${q}\n\n💡 답변\n${a}`)}">📋 복사하기</button>
+
+      <button type="button" class="qa-pill-btn"
+        data-act="email"
+        data-q="${escapeHTML(q)}"
+        data-a="${escapeHTML(a)}"
+        data-meta="${escapeHTML(metaText)}">✉️ 메일보내기</button>
 
       <span class="ml-auto text-[11px] font-semibold text-zinc-500 whitespace-nowrap">
         ${escapeHTML(metaText)}
@@ -93,14 +110,19 @@ export function renderQA(containerEl, item) {
     </div>
   `;
 
-  list.appendChild(wrapper);
+  if (mode === "prepend") list.prepend(wrapper);
+  else list.appendChild(wrapper);
+
   return true;
 }
 
 export function renderQAList(containerEl, items = []) {
   clearQA(containerEl);
 
+  const list = getListContainer(containerEl);
+  if (!list) return;
+
   for (const it of items) {
-    renderQA(containerEl, it); // renderQA에서 빈 항목은 자동 skip
+    renderQA(list, it, { mode: "append" }); // items가 이미 최신->과거 순서라고 가정
   }
 }
