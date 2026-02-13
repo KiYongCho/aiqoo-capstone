@@ -94,17 +94,25 @@ function normalizeAnswerKeepMarkdown(answer) {
   return a.replace(/\s+$/g, "");
 }
 
-// ✅ #qa=<id> 형태 해시 파서
-function getQaIdFromHash() {
+// ✅ 공유 링크 파서: ?qa= 우선, 없으면 #qa= 사용
+function getQaIdFromUrl() {
+  try {
+    const u = new URL(window.location.href);
+    const q = u.searchParams.get("qa");
+    if (q) return q;
+  } catch (_) {}
+
   const h = String(window.location.hash || "");
   const m = h.match(/#qa=([^&]+)/);
   if (!m) return null;
   try { return decodeURIComponent(m[1]); } catch { return m[1]; }
 }
 
+// ✅ 카카오에서 hash(#) 유실되는 케이스가 있어 ?qa= 로 공유 (권장)
+// (기존 #qa=도 해시 파서로 계속 지원 가능)
 function buildFullViewUrlById(id) {
-  const base = window.location.href.split("#")[0];
-  return `${base}#qa=${encodeURIComponent(String(id || ""))}`;
+  const base = window.location.href.split("#")[0].split("?")[0];
+  return `${base}?qa=${encodeURIComponent(String(id || ""))}`;
 }
 
 const player = createPlayerService();
@@ -244,13 +252,19 @@ function appendHistory(question, answer, timeInfo, id, createdAt) {
 async function startQuestionMode() {
   qaActive = true;
 
-  try { player.notifyPause(); } catch (_) {}
-  try { window.parent?.postMessage({ type: "qaFocus" }, "*"); } catch (_) {}
+  try {
+    player.notifyPause();
+  } catch (_) {}
+  try {
+    window.parent?.postMessage({ type: "qaFocus" }, "*");
+  } catch (_) {}
 
   hideOverlay();
   lockUI("⏸️ 영상 정지 중...");
 
-  try { el.input.focus(); } catch (_) {}
+  try {
+    el.input.focus();
+  } catch (_) {}
 }
 
 async function handleAsk() {
@@ -285,7 +299,6 @@ async function handleAsk() {
 
     updateAnswerProgressModal({ message: "답변을 정리하고 화면에 표시합니다…" });
 
-    // ✅ 답변은 마크다운 원문 보존
     const a = normalizeAnswerKeepMarkdown(answer);
 
     if (!a.trim()) {
@@ -296,6 +309,7 @@ async function handleAsk() {
     el.empty.classList.add("hidden");
     el.resetWrap.classList.remove("hidden");
 
+    // ✅ id 생성 후 렌더/저장 일관성 유지
     const id = crypto?.randomUUID?.() || String(Date.now());
     const createdAt = formatTime();
 
@@ -305,11 +319,20 @@ async function handleAsk() {
       { mode: "prepend" }
     );
 
+    // ✅ 혹시 dataset.id가 빠지는 경우를 대비한 보정(안전장치)
+    // renderQA에서 wrapper.dataset.id를 넣지만, DOM이 깨질 경우를 방지
+    try {
+      const firstCard = el.listWrap?.querySelector(".aiqoo-qa-item");
+      if (firstCard && !firstCard.dataset.id) firstCard.dataset.id = String(id);
+    } catch (_) {}
+
     appendHistory(q, a, lastTimeInfo, id, createdAt);
 
     el.input.value = "";
 
-    try { el.listWrap.scrollTop = 0; } catch (_) {}
+    try {
+      el.listWrap.scrollTop = 0;
+    } catch (_) {}
   } catch (err) {
     console.error(err);
     if (el.voiceStatus) el.voiceStatus.textContent = `❗ 실패: ${err?.message || "오류"}`;
@@ -320,7 +343,7 @@ async function handleAsk() {
 }
 
 function tryOpenAnswerFromHash() {
-  const id = getQaIdFromHash();
+  const id = getQaIdFromUrl(); // ✅ 변경
   if (!id) return;
 
   const items = sanitizeItems(store.load());
@@ -378,8 +401,11 @@ function bindEvents() {
   });
 
   el.toTop?.addEventListener("click", () => {
-    try { el.listWrap.scrollTo({ top: 0, behavior: "smooth" }); }
-    catch { el.listWrap.scrollTop = 0; }
+    try {
+      el.listWrap.scrollTo({ top: 0, behavior: "smooth" });
+    } catch {
+      el.listWrap.scrollTop = 0;
+    }
   });
 
   el.listWrap?.addEventListener("scroll", () => {
@@ -414,38 +440,20 @@ function bindEvents() {
       const q = kakao.getAttribute("data-q") || "";
       const a = kakao.getAttribute("data-a") || "";
 
-      // ✅ 카드 id를 찾아 "전체보기 링크" 생성
+      // ✅ (3) 적용: shareUrl은 반드시 "#qa=id" 포함
       const card = e.target.closest(".aiqoo-qa-item");
       const id = card?.dataset?.id || "";
-      const fullUrl = id ? buildFullViewUrlById(id) : window.location.href;
+      const fullUrl = id ? buildFullViewUrlById(id) : buildFullViewUrlById(String(Date.now()));
 
       try {
-        // 카카오는 길이 제한 때문에 요약될 수 있음 → link로 전체보기 유도
-        const { copied } = await shareKakao({
+        await shareKakao({
           question: q,
           answer: a,
-          shareUrl: fullUrl,           // ✅ 전체보기 링크 포함
-          autoCopyFullText: false,     // ✅ 우리가 직접 "전체 텍스트+링크"를 복사
+          shareUrl: fullUrl,        // ✅ "#qa=id" 포함 링크
+          autoCopyFullText: true,   // ✅ share.service.js에서 "전체 답변+링크" 복사하도록(수정본 기준)
         });
 
-        // ✅ 항상 전체 문장 + 전체보기 링크를 클립보드에 복사
-        try {
-          const fullText =
-`❓ 질문
-${q}
-
-답변
-${a}
-
-전체보기 링크: ${fullUrl}`;
-          await navigator.clipboard.writeText(fullText);
-          toast("📋 전체 답변+전체보기 링크 복사됨 (카카오는 요약 전송)");
-        } catch {
-          toast("ℹ️ 카카오는 요약 전송 (전체보기 링크 포함)");
-        }
-
-        // copied 플래그는 서비스 구현에 따라 다를 수 있어서 UX 메시지만 사용
-        void copied;
+        toast("💬 카카오 공유 열림 (전체보기 링크 포함)");
       } catch (err) {
         console.error(err);
         toast("❗ 카카오 공유 실패");
@@ -458,6 +466,12 @@ ${a}
       const q = email.getAttribute("data-q") || "";
       const a = email.getAttribute("data-a") || "";
       const metaText = email.getAttribute("data-meta") || "";
+
+      // ✅ 이메일에도 현재 카드의 전체보기 링크를 포함(일관성)
+      const card = e.target.closest(".aiqoo-qa-item");
+      const id = card?.dataset?.id || "";
+      const fullUrl = id ? buildFullViewUrlById(id) : window.location.href;
+
       const subject = `[AIQOO 답변] ${q.slice(0, 60)}${q.length > 60 ? "…" : ""}`;
       const body =
 `❓ 질문
@@ -466,7 +480,7 @@ ${q}
 답변
 ${a}
 
-${metaText ? `(${metaText})\n` : ""}공유 링크: ${window.location.href}`;
+${metaText ? `(${metaText})\n` : ""}전체보기 링크: ${fullUrl}`;
 
       try {
         window.location.href = toMailto({ subject, body });
@@ -510,14 +524,15 @@ ${metaText ? `(${metaText})\n` : ""}공유 링크: ${window.location.href}`;
     }
   });
 
-  // ✅ 해시 변경으로 들어온 경우도 처리
   window.addEventListener("hashchange", () => {
     tryOpenAnswerFromHash();
   });
 }
 
 function bindParentMessages() {
-  try { window.parent?.postMessage({ type: "qaReady" }, "*"); } catch (_) {}
+  try {
+    window.parent?.postMessage({ type: "qaReady" }, "*");
+  } catch (_) {}
 
   player.onMessage((msg) => {
     if (!msg?.type) return;
@@ -531,7 +546,6 @@ function bindParentMessages() {
       };
       loadHistory();
 
-      // ✅ videoInfo 받은 뒤에도 해시로 전체보기 열기 시도
       tryOpenAnswerFromHash();
       return;
     }
@@ -568,7 +582,6 @@ function init() {
   loadHistory();
   syncUI();
 
-  // ✅ 최초 진입 시에도 해시 처리
   tryOpenAnswerFromHash();
 }
 

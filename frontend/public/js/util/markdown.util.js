@@ -1,19 +1,20 @@
 /* /js/util/markdown.util.js
  * - 경량 마크다운 렌더러(안전 우선)
- * - 지원(추가됨):
+ * - 지원:
  *   - 코드 펜스 ```lang ... ```
  *   - 인라인 코드 `code`
  *   - 헤딩: # ~ ######
  *   - 굵게: **bold**
- *   - 기울임: *italic* (간단 처리)
  *   - 구분선: --- / ***
  *   - 리스트: - item / * item
  *   - 테이블: | a | b | (헤더 구분선 포함)
- *   - 줄바꿈: \n -> <br> (단, 블록 요소는 적절히 처리)
  * - NOTE:
  *   - HTML 입력은 모두 escape → XSS 방지
- *   - 생성하는 태그는 우리가 만든 것만 허용(콘텐츠는 escape)
  */
+
+export const MARKDOWN_UTIL_VERSION = "aiqoo-md:v3-2026-02-13";
+
+console.log("[AIQOO] markdown.util.js loaded:", MARKDOWN_UTIL_VERSION);
 
 function escapeHtml(s = "") {
   return String(s)
@@ -25,22 +26,16 @@ function escapeHtml(s = "") {
 }
 
 function renderInline(textEscaped = "") {
-  // textEscaped는 이미 escape된 문자열이어야 합니다.
   let t = String(textEscaped);
 
-  // 인라인 코드: `...` (가장 우선)
+  // 인라인 코드 `...`
   t = t.replace(/`([^`]+?)`/g, (_, code) => {
     return `<code class="md-inline-code">${escapeHtml(code)}</code>`;
   });
 
-  // 굵게: **...**
+  // 굵게 **...**
   t = t.replace(/\*\*([^*]+?)\*\*/g, (_, bold) => {
     return `<strong class="md-strong">${escapeHtml(bold)}</strong>`;
-  });
-
-  // 기울임: *...* (단순 처리; 굵게와 충돌 최소화)
-  t = t.replace(/(^|[^*])\*([^*]+?)\*(?!\*)/g, (_, pre, it) => {
-    return `${pre}<em class="md-em">${escapeHtml(it)}</em>`;
   });
 
   return t;
@@ -56,7 +51,6 @@ function isHeading(line) {
 }
 
 function parseHeading(lineEscaped) {
-  // lineEscaped는 escape된 상태지만 # 문자는 그대로 존재
   const raw = String(lineEscaped);
   const m = raw.match(/^(#{1,6})\s+(.*)$/);
   if (!m) return null;
@@ -70,7 +64,6 @@ function isListItem(line) {
 }
 
 function parseList(linesEscaped, startIdx) {
-  // 연속된 list item들을 ul로 묶기
   const items = [];
   let i = startIdx;
 
@@ -84,37 +77,28 @@ function parseList(linesEscaped, startIdx) {
   }
 
   if (!items.length) return null;
-  return {
-    html: `<ul class="md-ul">${items.join("")}</ul>`,
-    nextIdx: i,
-  };
+  return { html: `<ul class="md-ul">${items.join("")}</ul>`, nextIdx: i };
 }
 
 function looksLikeTableRow(line) {
   const s = line.trim();
-  // 최소한 파이프 2개 이상 + 내용
   return s.includes("|") && s.replaceAll("|", "").trim().length > 0;
 }
 
 function isTableSeparator(line) {
-  // |---|---|, ---|---, |:---|---:| 등 단순 처리
   const s = line.trim();
   if (!s.includes("-")) return false;
-  // 파이프 제거 후 공백 제거
   const x = s.replaceAll("|", "").trim();
-  // 콜론/하이픈/공백만으로 구성되어야 테이블 구분선으로 간주
   return /^[\s:-]+$/.test(x) && x.includes("-");
 }
 
 function splitTableCells(lineEscaped) {
-  // 앞뒤 파이프 제거 후 split
   const s = lineEscaped.trim();
   const trimmed = s.replace(/^\|/, "").replace(/\|$/, "");
   return trimmed.split("|").map((c) => c.trim());
 }
 
 function parseTable(linesEscaped, startIdx) {
-  // 최소 2줄: header + separator + body...
   if (startIdx + 1 >= linesEscaped.length) return null;
 
   const headerLine = linesEscaped[startIdx];
@@ -152,22 +136,11 @@ function parseTable(linesEscaped, startIdx) {
   return { html, nextIdx: i };
 }
 
-function renderParagraph(lineEscaped) {
-  // 한 줄짜리 텍스트를 문단으로 처리
-  const s = lineEscaped;
-  if (!s || !s.trim()) return "";
-  return `<div class="md-text">${renderInline(s)}</div>`;
-}
-
 function renderTextBlocks(textRaw = "") {
-  // 일반 텍스트(코드펜스 제외 영역) 처리
   const src = String(textRaw ?? "");
   if (!src) return "";
 
-  // 먼저 escape (안전)
   const escapedWhole = escapeHtml(src);
-
-  // 줄 단위로 처리
   const lines = escapedWhole.split("\n");
 
   let out = "";
@@ -176,20 +149,17 @@ function renderTextBlocks(textRaw = "") {
   while (i < lines.length) {
     const line = lines[i];
 
-    // 공백 줄
     if (!line.trim()) {
       i++;
       continue;
     }
 
-    // HR
     if (isHrLine(line)) {
       out += `<hr class="md-hr">`;
       i++;
       continue;
     }
 
-    // Heading
     if (isHeading(line)) {
       const h = parseHeading(line);
       if (h) out += h;
@@ -197,7 +167,6 @@ function renderTextBlocks(textRaw = "") {
       continue;
     }
 
-    // Table
     const tableParsed = parseTable(lines, i);
     if (tableParsed) {
       out += tableParsed.html;
@@ -205,7 +174,6 @@ function renderTextBlocks(textRaw = "") {
       continue;
     }
 
-    // List
     if (isListItem(line)) {
       const listParsed = parseList(lines, i);
       if (listParsed) {
@@ -215,11 +183,9 @@ function renderTextBlocks(textRaw = "") {
       }
     }
 
-    // 일반 문단(여러 줄 연속을 한 덩어리로 묶어서 <br> 처리)
-    // 다음 블록 요소 전까지 누적
+    // 문단(블록 요소 전까지 <br>로 묶기)
     const paraLines = [];
     let j = i;
-
     while (j < lines.length) {
       const l = lines[j];
       if (!l.trim()) break;
@@ -229,8 +195,7 @@ function renderTextBlocks(textRaw = "") {
       j++;
     }
 
-    const joined = paraLines.join("<br>");
-    out += `<div class="md-text">${renderInline(joined)}</div>`;
+    out += `<div class="md-text">${renderInline(paraLines.join("<br>"))}</div>`;
     i = j;
   }
 
@@ -243,11 +208,9 @@ function renderTextBlocks(textRaw = "") {
  */
 export function renderMarkdownSafe(md = "") {
   const src = String(md ?? "");
-
-  // 코드 펜스 분리
   const fenceRegex = /```(\w+)?\n([\s\S]*?)```/g;
 
-  let out = "";
+  let out = `<!-- ${MARKDOWN_UTIL_VERSION} -->`;
   let lastIdx = 0;
   let match;
 
@@ -256,11 +219,8 @@ export function renderMarkdownSafe(md = "") {
     const start = match.index;
     const end = start + full.length;
 
-    // 펜스 이전 일반 텍스트
-    const before = src.slice(lastIdx, start);
-    out += renderTextBlocks(before);
+    out += renderTextBlocks(src.slice(lastIdx, start));
 
-    // 코드 블록
     const language = lang ? escapeHtml(lang) : "";
     const codeEscaped = escapeHtml(codeBody);
 
@@ -277,16 +237,10 @@ export function renderMarkdownSafe(md = "") {
     lastIdx = end;
   }
 
-  // 나머지 텍스트
   out += renderTextBlocks(src.slice(lastIdx));
-
   return out.trim();
 }
 
-/**
- * 코드블록 내 "복사" 버튼을 위해 이벤트 위임 처리 헬퍼
- * @param {HTMLElement} root
- */
 export function bindMarkdownCopyButtons(root) {
   if (!root) return;
 

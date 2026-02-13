@@ -2,7 +2,10 @@
 // - Q/A는 질문(❓)만 이모지 표시
 // - 버튼 중앙 정렬 + 답변삭제 버튼 포함
 // - 마크다운 안전 렌더링 + 코드블록 복사 버튼
-// - (중요) 답변(answer)은 normalizeText로 뭉개지지 않도록 "원문 보존" 처리
+//
+// ✅ 중요 수정:
+// - 답변에 normalizeText를 적용하지 않음(마크다운 원문 보존)
+// - 질문/메타만 normalizeText 사용
 
 import { normalizeText } from "/js/util/utils.js";
 import { renderMarkdownSafe, bindMarkdownCopyButtons } from "/js/util/markdown.util.js";
@@ -20,21 +23,21 @@ function escapeHTML(str) {
     .replaceAll("'", "&#039;");
 }
 
-// ✅ 답변은 마크다운을 위해 원문 보존 (trim만)
-function normalizeAnswerKeepMarkdown(answer) {
+// ✅ 답변은 마크다운 원문 보존 (끝 공백만 제거)
+function keepMarkdown(answer) {
   const a = String(answer ?? "");
-  const trimmed = a.replace(/\s+$/g, ""); // trailing whitespace만 제거
-  return trimmed;
+  return a.replace(/\s+$/g, "");
 }
 
 function formatAnswerToHTML(answer) {
-  const a = normalizeAnswerKeepMarkdown(answer);
+  const a = keepMarkdown(answer);
   if (!a.trim()) return "";
   return renderMarkdownSafe(a);
 }
 
 function getListContainer(containerEl) {
   if (!containerEl) return null;
+  // qa.html에서는 #qaList 자체가 스크롤 컨테이너이자 리스트 컨테이너
   return containerEl;
 }
 
@@ -89,18 +92,16 @@ export function renderQA(containerEl, item, options = {}) {
 
   const mode = options.mode || "append";
 
-  // ✅ 질문은 normalize
+  // ✅ 질문만 normalizeText
   const q = normalizeText(item?.question);
 
-  // ✅ 답변은 "원문 보존" (마크다운 깨짐 방지)
-  const a = normalizeAnswerKeepMarkdown(item?.answer);
+  // ✅ 답변은 normalizeText 금지(마크다운 유지)
+  const a = keepMarkdown(item?.answer);
 
   // ✅ 빈 카드 방지
   if (!q || !a.trim()) return false;
 
-  if (mode === "replace") {
-    list.innerHTML = "";
-  }
+  if (mode === "replace") list.innerHTML = "";
 
   const createdAt = normalizeText(item?.createdAt || "");
   const tLabel = normalizeText(item?.meta?.tLabel || "");
@@ -132,6 +133,7 @@ export function renderQA(containerEl, item, options = {}) {
     </div>
   `;
 
+  // ✅ 마크다운 코드블록 "복사" 버튼 이벤트 위임 바인딩
   bindMarkdownCopyButtons(wrapper);
 
   if (mode === "prepend") list.prepend(wrapper);
@@ -145,7 +147,5 @@ export function renderQAList(containerEl, items = []) {
   const list = getListContainer(containerEl);
   if (!list) return;
 
-  for (const it of items) {
-    renderQA(list, it, { mode: "append" });
-  }
+  for (const it of items) renderQA(list, it, { mode: "append" });
 }
