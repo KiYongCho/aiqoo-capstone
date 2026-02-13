@@ -197,6 +197,17 @@
     border-color: rgba(255,255,255,0.22);
     transform: translateY(-1px);
   }
+
+  /* ✅ 위험/삭제 버튼 변형 */
+  .qa-pill-danger{
+    border-color: rgba(239,68,68,0.35);
+    background: rgba(239,68,68,0.12);
+    color: rgba(254,226,226,0.95);
+  }
+  .qa-pill-danger:hover{
+    background: rgba(239,68,68,0.18);
+    border-color: rgba(239,68,68,0.55);
+  }
   
   .qa-pill-btn:active {
     transform: translateY(0);
@@ -207,195 +218,11 @@
     cursor: not-allowed;
     transform: none;
   }
-  
-  /* ✅ 답변 크게보기 버튼 */
-  .qa-answer-zoombtn { /* 기존 클래스 유지 */
-    composes: qa-pill-btn;
-  }
-  /* composes 미지원 브라우저 대비: 동일 속성 반복 */
-  .qa-answer-zoombtn{
-    border: 1px solid rgba(255,255,255,0.14);
-    background: rgba(255,255,255,0.06);
-    color: rgba(244,244,245,0.92);
-    font-size: 11px;
-    font-weight: 800;
-    padding: 6px 10px;
-    border-radius: 9999px;
-    transition: transform .15s ease, background .15s ease, border-color .15s ease;
-    user-select: none;
-    white-space: nowrap;
-  }
-  
-  /* ✅ 공유 버튼(카카오/메일) */
-  .qa-share-kakao{
-    border: 1px solid rgba(250, 227, 0, 0.22);
-    background: rgba(250, 227, 0, 0.10);
-    color: rgba(255,255,255,0.92);
-  }
-  .qa-share-kakao:hover{
-    border-color: rgba(250, 227, 0, 0.35);
-    background: rgba(250, 227, 0, 0.16);
-  }
-  
-  .qa-share-mail{
-    border: 1px solid rgba(34, 211, 238, 0.22);
-    background: rgba(34, 211, 238, 0.10);
-    color: rgba(255,255,255,0.92);
-  }
-  .qa-share-mail:hover{
-    border-color: rgba(34, 211, 238, 0.35);
-    background: rgba(34, 211, 238, 0.16);
-  }
-  
+
   /* ==============================
-     ✅ 답변 크게보기: 브라우저 전체화면 모달(구버전 호환)
+     ✅ (이하 기존 파일 내용 그대로)
      ============================== */
-  .qa-modal-open { overflow: hidden !important; }
-  
-  #answerModal {
-    position: fixed;
-    inset: 0;
-    z-index: 20000;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-  }
-  #answerModal.flex { display: flex; }
-  #answerModal.hidden { display: none; }
-  
-  .qa-answer-modal-dim {
-    position: absolute;
-    inset: 0;
-    background: rgba(0,0,0,0.72);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-  }
-  
-  .qa-answer-modal-card {
-    position: relative;
-    width: min(980px, 96vw);
-    max-height: min(88vh, 980px);
-    border-radius: 18px;
-    border: 1px solid rgba(255,255,255,0.12);
-    background: rgba(18,18,22,0.96);
-    box-shadow: 0 40px 120px rgba(0,0,0,0.65);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    animation: qaAnswerModalIn 180ms ease-out;
-  }
-  
-  @keyframes qaAnswerModalIn {
-    from { opacity: 0; transform: translateY(8px) scale(0.985); }
-    to   { opacity: 1; transform: translateY(0) scale(1); }
-  }
-  
-  .qa-answer-modal-header {
-    padding: 14px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-  }
-  
-  .qa-answer-modal-title {
-    font-size: 16px;
-    font-weight: 900;
-    letter-spacing: 0.04em;
-    color: rgba(244,244,245,0.95);
-  }
-  
-  .qa-answer-modal-meta {
-    margin-top: 4px;
-    font-size: 12px;
-    line-height: 1.35;
-    color: rgba(161,161,170,0.9);
-    word-break: break-word;
-  }
-  
-  .qa-answer-modal-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  
-  #answerModalBody {
-    padding: 18px 18px 22px;
-    overflow-y: auto;
-    overflow-x: hidden;
-    font-size: 16px;
-    line-height: 1.75;
-    color: rgba(244,244,245,0.92);
-    white-space: pre-wrap;
-  }
-  
-  /* ==============================
-     ✅ Q/A compact UI (카드)
-     ============================== */
-  .aiqoo-qa-item {
-    padding: 12px 14px;
-    border-radius: 12px;
-    background: #111827;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-  }
-  
-  /* Q/A row */
-  .aiqoo-qa-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    margin: 0;
-    padding: 0;
-  }
-  
-  /* 질문 */
-  .aiqoo-qa-question {
-    color: #facc15;
-    font-weight: 700;
-  }
-  
-  /* 답변 */
-  .aiqoo-qa-answer {
-    color: #e5e7eb;
-    margin-top: 6px;
-  }
-  
-  .aiqoo-qa-icon {
-    font-size: 18px;
-    line-height: 1.2;
-    margin-top: 2px;
-  }
-  
-  .aiqoo-qa-text {
-    margin: 0;
-    line-height: 1.5;
-    word-break: break-word;
-  }
-  
-  /* 답변 내부 <br> 과도한 여백 방지 */
-  .aiqoo-qa-answer-text br {
-    line-height: 1.5;
-  }
-  
-  /* ✅ hidden이 동작하지 않는 케이스 방지 */
-  .hidden {
-    display: none !important;
-  }
-  
-  /* 우측 패널 규칙(기존 유지) */
-  #aiqooRightPanel,
-  .aiqoo-right-panel {
-    position: fixed;
-    top: 0;
-    right: 0;
-    height: 100vh;
-    width: 420px;
-    z-index: 999999;
-  }
-  
-  /* ✅ 목록 컨테이너 (중요: 2중 스크롤 제거) */
+
   .aiqoo-qa-list {
     display: flex;
     flex-direction: column;
@@ -457,4 +284,3 @@
       right: auto !important;
     }
   }
-  

@@ -80,23 +80,12 @@
       </span>
     </div>
 
-    <div class="mb-3 flex gap-2.5">
-      <button type="button"
-        class="btn-voice flex-1 min-w-0 rounded-lg border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm font-semibold text-zinc-400 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
-        id="voiceBtn" disabled>🎤 음성 질문</button>
-
-      <button type="button"
-        class="btn-text flex-1 min-w-0 rounded-lg border-0 bg-gradient-to-b from-indigo-500 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-        id="submitBtn" disabled>📄 텍스트 질문</button>
-    </div>
+    <!-- ✅ 버튼 영역 제거: Enter로 전송(Shift+Enter 줄바꿈) -->
 
     <div class="min-h-[18px] mb-2.5 text-xs tracking-wide text-zinc-500" id="voiceStatus"></div>
 
-    <div class="mb-2 text-[11px] text-zinc-500">
-      <span class="text-zinc-400 font-semibold">강의키:</span>
-      <span id="videoKeyLabel" class="ml-1">default</span>
-      <span class="ml-2 text-zinc-600" id="providerLabel"></span>
-    </div>
+
+    <!-- ✅ 강의키 라인 제거 -->
 
     <textarea
       id="questionInput"
@@ -106,15 +95,8 @@
       class="w-full min-h-[108px] resize-y rounded-lg border border-white/[0.08] bg-white/[0.04] px-3.5 py-3 text-sm leading-normal text-zinc-50 placeholder-zinc-500 transition focus:border-indigo-500/50 focus:outline-none focus:ring-3 focus:ring-indigo-500/20 disabled:opacity-60 disabled:cursor-not-allowed"
     ></textarea>
 
-    <div class="mt-2">
-      <div class="mb-1 text-[11px] text-zinc-500">📌 질문 예시</div>
-      <div id="exampleChips" class="flex flex-wrap gap-2">
-        <button type="button" data-example="방금 설명한 핵심 개념을 3줄로 요약해 주세요." class="qa-chip">개념 요약</button>
-        <button type="button" data-example="이 개념을 비전공자도 이해할 수 있는 일상 예시로 설명해 주세요." class="qa-chip">일상 예시</button>
-        <button type="button" data-example="지금 나온 용어(키워드) 5개를 뽑고 각각 의미를 알려주세요." class="qa-chip">용어 5개</button>
-        <button type="button" data-example="실습을 위해 간단한 예제 코드와 단계별 설명을 만들어 주세요." class="qa-chip">예제 코드</button>
-      </div>
-    </div>
+
+    <!-- ✅ 질문 예시 영역 제거 -->
 
     <div class="mt-3 flex justify-end hidden" id="resetWrap">
       <button type="button"

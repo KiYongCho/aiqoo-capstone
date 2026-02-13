@@ -3,7 +3,6 @@ import { askQA } from "/js/service/api.service.js";
 import { createLectureStore } from "/js/core/store.js";
 import { normalizeText, formatTime } from "/js/core/utils.js";
 import { createPlayerService } from "/js/service/player.service.js";
-import { createSTTService } from "/js/service/stt.service.js";
 import { shareKakao } from "/js/service/share.service.js";
 import { openAnswerModal } from "/js/ui/modal.view.js";
 import { renderQA, renderQAList, clearQA } from "/js/ui/qa.view.js";
@@ -15,15 +14,12 @@ const el = {
   overlayBtn: $("#overlayBtn"),
 
   hint: $("#hintLabel"),
-  voiceBtn: $("#voiceBtn"),
-  submitBtn: $("#submitBtn"),
   voiceStatus: $("#voiceStatus"),
   input: $("#questionInput"),
 
   listWrap: $("#qaList"),
   empty: $("#qaEmpty"),
 
-  chips: $("#exampleChips"),
   resetWrap: $("#resetWrap"),
   resetBtn: $("#resetBtn"),
 
@@ -32,9 +28,6 @@ const el = {
   resetConfirm: $("#resetModalConfirm"),
 
   toTop: $("#toTopBtn"),
-
-  videoKeyLabel: $("#videoKeyLabel"),
-  providerLabel: $("#providerLabel"),
 };
 
 function showOverlay() {
@@ -47,16 +40,12 @@ function hideOverlay() {
 }
 
 function lockUI(msg) {
-  el.voiceBtn.disabled = true;
-  el.submitBtn.disabled = true;
-  el.input.disabled = true;
+  if (el.input) el.input.disabled = true;
   el.hint.textContent = msg || "📺 영상 재생 중입니다.";
 }
 
 function unlockUI(msg) {
-  el.voiceBtn.disabled = false;
-  el.submitBtn.disabled = false;
-  el.input.disabled = false;
+  if (el.input) el.input.disabled = false;
   el.hint.textContent = msg || "📢 AIQOO에게 질문하세요!";
 }
 
@@ -117,9 +106,7 @@ function setBusy(flag, label = "답변 생성 중...") {
 
   if (busy) {
     // ✅ 버튼/입력 비활성화
-    el.voiceBtn.disabled = true;
-    el.submitBtn.disabled = true;
-    el.input.disabled = true;
+    if (el.input) el.input.disabled = true;
 
     // ✅ “돌아가는거(로딩)” 표시 (Tailwind animate-spin 사용)
     if (el.voiceStatus) {
@@ -135,16 +122,9 @@ function setBusy(flag, label = "답변 생성 중...") {
 
   // ✅ 다시 활성화(단, 영상 재생 중이면 lockUI에서 다시 잠글 수 있음)
   if (!videoPlaying && qaActive) {
-    el.voiceBtn.disabled = false;
-    el.submitBtn.disabled = false;
-    el.input.disabled = false;
+    if (el.input) el.input.disabled = false;
   }
   if (el.voiceStatus) el.voiceStatus.textContent = "";
-}
-
-function applyMetaUI() {
-  el.videoKeyLabel.textContent = meta.videoKey || "default";
-  el.providerLabel.textContent = meta.provider ? `(${meta.provider})` : "";
 }
 
 function syncUI() {
@@ -214,7 +194,7 @@ function loadHistory() {
   renderQAList(el.listWrap, items);
 }
 
-function appendHistory(question, answer, timeInfo) {
+function appendHistory(question, answer, timeInfo, id, createdAt) {
   const q = normalizeText(question);
   const a = normalizeText(answer);
 
@@ -224,8 +204,8 @@ function appendHistory(question, answer, timeInfo) {
 
   // ✅ 최신이 상단
   items.unshift({
-    id: crypto?.randomUUID?.() || String(Date.now()),
-    createdAt: formatTime(),
+    id: id || crypto?.randomUUID?.() || String(Date.now()),
+    createdAt: createdAt || formatTime(),
     question: q,
     answer: a,
     meta: {
@@ -258,7 +238,7 @@ async function handleAsk() {
 
   const q = normalizeText(el.input.value);
   if (!q) return;
-  if (el.submitBtn.disabled) return;
+  if (videoPlaying || !qaActive) return;
 
   // ✅ 여기부터 “답변 표시 전까지 잠금”
   setBusy(true, "답변 생성 중...");
@@ -288,13 +268,16 @@ async function handleAsk() {
     el.resetWrap.classList.remove("hidden");
 
     // ✅ 최신 답변 상단 표시
+    const id = crypto?.randomUUID?.() || String(Date.now());
+    const createdAt = formatTime();
+
     renderQA(
       el.listWrap,
-      { question: q, answer: a, createdAt: formatTime(), meta: { tLabel: lastTimeInfo.tLabel } },
+      { id, question: q, answer: a, createdAt, meta: { tLabel: lastTimeInfo.tLabel } },
       { mode: "prepend" }
     );
 
-    appendHistory(q, a, lastTimeInfo);
+    appendHistory(q, a, lastTimeInfo, id, createdAt);
 
     el.input.value = "";
 
@@ -321,8 +304,6 @@ function bindEvents() {
     startQuestionMode();
   });
 
-  el.submitBtn?.addEventListener("click", handleAsk);
-
   el.input?.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -330,13 +311,8 @@ function bindEvents() {
     }
   });
 
-  el.chips?.addEventListener("click", (e) => {
-    const btn = e.target.closest("button[data-example]");
-    if (!btn) return;
-    if (busy) return; // ✅ 진행 중엔 예시 클릭도 무시
-    el.input.value = btn.getAttribute("data-example") || "";
-    try { el.input.focus(); } catch (_) {}
-  });
+
+  // ✅ 버튼 UI 제거: Enter로 전송(Shift+Enter 줄바꿈)
 
   el.resetBtn?.addEventListener("click", () => {
     el.resetModal.classList.remove("hidden");
@@ -424,7 +400,7 @@ function bindEvents() {
 `❓ 질문
 ${q}
 
-💡 답변
+답변
 ${a}
 
 ${metaText ? `(${metaText})\n` : ""}공유 링크: ${window.location.href}`;
@@ -435,46 +411,31 @@ ${metaText ? `(${metaText})\n` : ""}공유 링크: ${window.location.href}`;
         console.error(err);
         toast("❗ 메일 앱 실행 실패");
       }
-    }
-  });
-}
-
-function bindSTT() {
-  const stt = createSTTService(
-    (msg) => {
-      // busy 상태에서는 로딩 스피너가 있으니 STT 상태 메시지는 덮어쓰지 않음
-      if (busy) return;
-      el.voiceStatus.textContent = msg || "";
-    },
-    (text) => {
-      if (busy) return;
-      el.input.value = normalizeText(text || "");
-      try { el.input.focus(); } catch (_) {}
-    }
-  );
-
-  el.voiceBtn?.addEventListener("click", async () => {
-    if (busy) {
-      toast("⏳ 답변 생성 중에는 음성 입력을 사용할 수 없습니다.");
       return;
     }
 
-    if (el.voiceBtn.dataset.state === "rec") {
-      el.voiceBtn.dataset.state = "";
-      el.voiceBtn.textContent = "🎤 음성 질문";
-      stt.stop();
-      return;
-    }
+    const del = e.target.closest('[data-act="delete"]');
+    if (del) {
+      const card = e.target.closest('.aiqoo-qa-item');
+      const id = card?.dataset?.id;
 
-    try {
-      el.voiceBtn.dataset.state = "rec";
-      el.voiceBtn.textContent = "⏹️ 녹음 종료";
-      await stt.start();
-    } catch (err) {
-      console.error(err);
-      el.voiceBtn.dataset.state = "";
-      el.voiceBtn.textContent = "🎤 음성 질문";
-      el.voiceStatus.textContent = "❗ 마이크 권한 또는 녹음 시작 실패";
+      const items = sanitizeItems(store.load());
+      const next = id ? items.filter(it => String(it?.id || "") !== String(id)) : items.filter(it => {
+        const qq = normalizeText(it?.question || "");
+        const aa = normalizeText(it?.answer || "");
+        return !(qq === normalizeText(del.getAttribute('data-q') || "") && aa === normalizeText(del.getAttribute('data-a') || ""));
+      });
+
+      store.save(next);
+      card?.remove();
+
+      // 비었으면 empty UI 복원
+      if (!next.length) {
+        el.empty?.classList.remove('hidden');
+        el.resetWrap?.classList.add('hidden');
+      }
+      toast('🗑️ 삭제됨');
+      return;
     }
   });
 }
@@ -492,7 +453,6 @@ function bindParentMessages() {
         provider: msg.provider || "",
         youtubeId: msg.youtubeId || "",
       };
-      applyMetaUI();
       loadHistory();
       return;
     }
@@ -525,10 +485,7 @@ function init() {
   lockUI("📺 영상 상태 확인 중...");
 
   bindEvents();
-  bindSTT();
   bindParentMessages();
-
-  applyMetaUI();
   loadHistory();
   syncUI();
 }
